@@ -1,0 +1,8 @@
+flask
+mysql-connector-python
+pandas
+numpy
+statsmodels
+xgboost
+scikit-learn
+openpyxl

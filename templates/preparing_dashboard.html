@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Preparing Dashboard - StockWise</title>
+    <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="dashboard-loading-body">
+    <main class="dashboard-loading-shell">
+        <div class="dashboard-loading-card" role="status" aria-live="polite">
+            <img src="{{ url_for('static', filename='images/stockwise_logo.png') }}" alt="StockWise" class="dashboard-loading-logo">
+            <h1>Preparing your dashboard</h1>
+            <p>Loading your latest store data. Please wait...</p>
+            <div class="dashboard-loading-progress" aria-hidden="true">
+                <div class="dashboard-loading-progress-bar"></div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Keep this loading page visible while the dashboard route performs its
+        // first heavy data sync.  Do not fade the body out before navigation,
+        // because that can leave users looking at a blank yellow screen while
+        // the dashboard response is still loading.
+        window.setTimeout(function () {
+            window.location.replace("{{ url_for('dashboard') }}");
+        }, 450);
+    </script>
+</body>
+</html>

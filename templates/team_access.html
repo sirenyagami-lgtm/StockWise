@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header page-header-with-action settings-subpage-header">
+    <div class="page-header-main">
+        <h1 class="page-title">Team & Access</h1>
+        <p class="page-subtitle">Manage who can access this store workspace.</p>
+    </div>
+    <div class="page-header-actions">
+        <a href="{{ url_for('settings') }}#team-access" class="btn btn-outline" data-app-link="true">Back to Settings</a>
+    </div>
+</div>
+
+{% if settings_message %}
+<div class="settings-toast-layer" aria-live="polite">
+    <div class="settings-toast status-alert status-{{ settings_message_type }}" data-auto-dismiss-toast>
+        {{ settings_message }}
+    </div>
+</div>
+{% endif %}
+
+<div class="settings-summary-grid team-summary-grid mb-4">
+    <div class="settings-summary-card"><span>Active employees</span><strong>{{ employee_summary.active }}</strong></div>
+    <div class="settings-summary-card"><span>Deactivated</span><strong>{{ employee_summary.deactivated }}</strong></div>
+    <div class="settings-summary-card"><span>Removed</span><strong>{{ employee_summary.removed }}</strong></div>
+    <div class="settings-summary-card"><span>Pending setup</span><strong>{{ employee_summary.pending }}</strong></div>
+</div>
+
+<div class="card settings-management-page-card" id="add-employee">
+    <div class="section-title-row settings-section-inline-header">
+        <div>
+            <h3 class="card-title">Add Employee</h3>
+        </div>
+    </div>
+    <form method="POST" action="{{ url_for('add_employee_route') }}" class="settings-field-grid settings-subpage-form team-access-add-form">
+        <div class="form-group">
+            <label class="control-label block" for="employeeFirstNameInput">First Name</label>
+            <input type="text" class="form-input w-100" id="employeeFirstNameInput" name="employee_first_name" autocomplete="given-name" required>
+        </div>
+        <div class="form-group">
+            <label class="control-label block" for="employeeLastNameInput">Last Name</label>
+            <input type="text" class="form-input w-100" id="employeeLastNameInput" name="employee_last_name" autocomplete="family-name" required>
+        </div>
+        <div class="form-group">
+            <label class="control-label block" for="employeeEmailInput">Email Address</label>
+            <input type="email" class="form-input w-100" id="employeeEmailInput" name="employee_email" autocomplete="email" required>
+        </div>
+        <div class="form-group">
+            <label class="control-label block" for="employeeRoleSelect">Role</label>
+            <select class="form-select w-100" id="employeeRoleSelect" name="employee_role" required>
+                <option value="" selected disabled>Select Role</option>
+                {% for option in employee_role_options %}
+                    <option value="{{ option }}">{{ option }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="settings-action-row settings-subpage-action-row">
+            <button type="submit" class="btn btn-yellow">Add Employee</button>
+        </div>
+    </form>
+</div>
+
+<div class="card settings-management-page-card mt-4">
+    <div class="section-title-row settings-section-inline-header">
+        <div>
+            <h3 class="card-title">Employee List</h3>
+        </div>
+        {% if removed_employees %}
+            <button type="button" class="settings-view-link settings-view-button" data-toggle-removed-employees aria-expanded="false">Show removed employees</button>
+        {% endif %}
+    </div>
+
+    {% if employees or removed_employees %}
+    <div class="settings-employee-table-wrap mt-3">
+        <table class="settings-employee-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Last Login</th>
+                    <th>Account Status</th>
+                    <th>Activity</th>
+                    <th class="actions-column"><span class="actions-column-label">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for employee in employees %}
+                    <tr data-active-employee-row>
+                        <td>{{ employee.name }}</td>
+                        <td class="employee-email-cell">{{ employee.email }}</td>
+                        <td>
+                            <form method="POST"
+                                  action="{{ url_for('update_employee_role_route', employee_id=employee.user_id) }}"
+                                  class="employee-role-form"
+                                  data-employee-role-form
+                                  data-employee-name="{{ employee.name }}">
+                                <select class="form-select compact-select"
+                                        name="employee_role_{{ employee.user_id }}"
+                                        data-employee-role-select
+                                        data-original-role="{{ employee.role }}">
+                                    {% for option in employee_role_options %}
+                                        <option value="{{ option }}" {% if employee.role == option %}selected{% endif %}>{{ option }}</option>
+                                    {% endfor %}
+                                </select>
+                            </form>
+                        </td>
+                        <td>{{ employee.last_login }}</td>
+                        <td>
+                            <span class="employee-status-pill employee-status-{{ employee.status_key }}">{{ employee.status }}</span>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('activity_logs', employee_id=employee.user_id) }}"
+                               class="settings-view-link"
+                               data-app-link="true">
+                                View Activity
+                            </a>
+                        </td>
+                        <td class="employee-actions-cell">
+                            <form method="POST"
+                                  action="{{ url_for('update_employee_status_route', employee_id=employee.user_id) }}"
+                                  class="settings-employee-actions">
+                                <button type="submit"
+                                        name="employee_status"
+                                        value="active"
+                                        class="btn btn-outline btn-sm"
+                                        {% if employee.status_key != 'deactivated' %}disabled{% endif %}
+                                        data-confirm-message="Activate this employee account?">
+                                    Activate
+                                </button>
+                                <button type="submit"
+                                        name="employee_status"
+                                        value="deactivated"
+                                        class="btn btn-outline btn-sm"
+                                        {% if employee.status_key != 'active' %}disabled{% endif %}
+                                        data-confirm-message="Deactivate this employee account? They will no longer be able to access the system until reactivated.">
+                                    Deactivate
+                                </button>
+                                <button type="submit"
+                                        name="employee_status"
+                                        value="removed"
+                                        class="btn btn-outline btn-sm danger"
+                                        {% if employee.status_key == 'removed' %}disabled{% endif %}
+                                        data-confirm-message="Remove this employee from the store workspace? Their activity logs will remain.">
+                                    Remove
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+                {% for employee in removed_employees %}
+                    <tr data-removed-employee-row hidden>
+                        <td>{{ employee.name }}</td>
+                        <td class="employee-email-cell">{{ employee.email }}</td>
+                        <td>
+                            <span>{{ employee.role }}</span>
+                        </td>
+                        <td>{{ employee.last_login }}</td>
+                        <td>
+                            <span class="employee-status-pill employee-status-{{ employee.status_key }}">{{ employee.status }}</span>
+                        </td>
+                        <td>
+                            <a href="{{ url_for('activity_logs', employee_id=employee.user_id) }}"
+                               class="settings-view-link"
+                               data-app-link="true">
+                                View Activity
+                            </a>
+                        </td>
+                        <td class="employee-actions-cell">
+                            <form method="POST"
+                                  action="{{ url_for('rehire_employee_route', employee_id=employee.user_id) }}"
+                                  class="settings-employee-actions">
+                                <button type="submit"
+                                        class="btn btn-outline btn-sm"
+                                        data-confirm-message="Add this employee back to the store workspace? Their previous activity logs will remain available.">
+                                    Rehire
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <div class="empty-state-panel compact-empty-panel clear-border settings-empty-panel mt-3">
+            <div class="empty-state-text">No employees added yet.</div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

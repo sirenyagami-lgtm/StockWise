@@ -1,0 +1,373 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header page-header-with-action dashboard-page-header">
+    <div class="page-header-main">
+        <div class="page-title-row">
+            <h1 class="page-title">{{ role_dashboard.title if role_dashboard else 'Dashboard' }}</h1>
+        </div>
+        {% if role_dashboard and role_dashboard.subtitle %}
+            <p class="page-subtitle">{{ role_dashboard.subtitle }}</p>
+        {% endif %}
+    </div>
+    <div class="page-header-actions dashboard-role-actions">
+        {% if role_dashboard and role_dashboard.primary_action_url %}
+            <a href="{{ role_dashboard.primary_action_url }}" class="btn btn-yellow dashboard-upload-btn" data-app-link="true">{{ role_dashboard.primary_action_label or 'Open' }}</a>
+        {% elif 'upload_data' in visible_nav_keys %}
+            <a href="{{ url_for('upload_data') }}" class="btn btn-yellow dashboard-upload-btn" data-app-link="true">Upload New Data</a>
+        {% endif %}
+        {% if role_dashboard and role_dashboard.secondary_actions %}
+            {% for action in role_dashboard.secondary_actions %}
+                <a href="{{ action.url }}" class="btn btn-outline" data-app-link="true">{{ action.label }}</a>
+            {% endfor %}
+        {% elif role_dashboard and role_dashboard.secondary_action_url %}
+            <a href="{{ role_dashboard.secondary_action_url }}" class="btn btn-outline" data-app-link="true">{{ role_dashboard.secondary_action_label }}</a>
+        {% endif %}
+    </div>
+</div>
+
+{% if role_dashboard.show_assistant_dashboard %}
+    <div class="dashboard-role-layout assistant-dashboard-layout">
+        <div class="grid-row top-summary-row dashboard-summary-row assistant-summary-row">
+            <div class="card stat-card dashboard-stat-card">
+                <div class="icon-circle">
+                    <img src="{{ url_for('static', filename='images/secure.png') }}" alt="" onerror="this.style.display='none'">
+                </div>
+                <div class="dashboard-stat-content">
+                    <div class="stat-label-strong">Stable Products</div>
+                    <div class="stat-value {% if not role_dashboard.has_data %}empty-value{% endif %}">{% if role_dashboard.has_data %}{{ role_dashboard.stable_count }}{% else %}No data yet{% endif %}</div>
+                </div>
+            </div>
+
+            <div class="card stat-card dashboard-stat-card">
+                <div class="icon-circle">
+                    <img src="{{ url_for('static', filename='images/box.png') }}" alt="" onerror="this.style.display='none'">
+                </div>
+                <div class="dashboard-stat-content">
+                    <div class="stat-label-strong">Monitor Products</div>
+                    <div class="stat-value {% if not role_dashboard.has_data %}empty-value{% endif %}">{% if role_dashboard.has_data %}{{ role_dashboard.monitored_count }}{% else %}No data yet{% endif %}</div>
+                </div>
+            </div>
+
+            <div class="card stat-card dashboard-stat-card">
+                <div class="icon-circle">
+                    <img src="{{ url_for('static', filename='images/warning.png') }}" alt="" onerror="this.style.display='none'">
+                </div>
+                <div class="dashboard-stat-content">
+                    <div class="stat-label-strong">Low Stock Products</div>
+                    <div class="stat-value {% if not role_dashboard.has_data %}empty-value{% endif %}">{% if role_dashboard.has_data %}{{ role_dashboard.low_stock_count }}{% else %}No data yet{% endif %}</div>
+                </div>
+            </div>
+
+            <div class="card stat-card dashboard-stat-card">
+                <div class="icon-circle">
+                    <img src="{{ url_for('static', filename='images/calendar.png') }}" alt="" onerror="this.style.display='none'">
+                </div>
+                <div class="dashboard-stat-content">
+                    <div class="stat-label-strong">Latest Product Update</div>
+                    <div class="stat-value empty-value stat-value-date">{{ role_dashboard.last_processed_label }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card assistant-checklist-card">
+            <div class="table-header-flex action-header-flex">
+                <div>
+                    <div class="section-title-row">
+                        <h3 class="card-title mb-0">Product Checklist</h3>
+                    </div>
+                </div>
+            </div>
+
+            {% if role_dashboard.assistant_task_rows %}
+                <div class="table-responsive dashboard-scroll-shell dashboard-table-scroll assistant-checklist-scroll">
+                    <table class="data-table dashboard-assistant-table">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Category</th>
+                                <th>Latest Recorded Stock</th>
+                                <th>Stock Status</th>
+                                <th>Stock Concern</th>
+                                <th>Suggested Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in role_dashboard.assistant_task_rows %}
+                                <tr>
+                                    <td>{{ row.product_name }}</td>
+                                    <td>{{ row.category }}</td>
+                                    <td>{{ row.current_stock }}</td>
+                                    <td>
+                                        {% if row.stock_status == 'Low' %}
+                                            <span class="pill high">Low</span>
+                                        {% elif row.stock_status == 'Monitor' %}
+                                            <span class="pill moderate">Monitor</span>
+                                        {% else %}
+                                            <span class="pill low">Stable</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ row.stock_concern }}</td>
+                                    <td><span class="assistant-suggested-action">{{ row.action_label }}</span></td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state-panel page-empty-panel assistant-checklist-empty-panel">
+                    <div class="empty-state-text">{{ role_dashboard.empty_prompt }}</div>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="card assistant-reminder-card">
+            <div class="section-title-row"><h3 class="card-title">Daily Reminders</h3></div>
+            {% if role_dashboard.has_data and role_dashboard.assistant_reminders %}
+                <div class="assistant-reminder-grid">
+                    {% for reminder in role_dashboard.assistant_reminders %}
+                        <div class="assistant-reminder-item">
+                            <strong>{{ reminder }}</strong>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state-panel page-empty-panel assistant-reminder-empty-panel">
+                    <div class="empty-state-text">No data available yet.</div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+{% else %}
+    <div class="grid-row top-summary-row dashboard-summary-row">
+        <div class="card stat-card dashboard-stat-card">
+            <div class="icon-circle">
+                <img src="{{ url_for('static', filename='images/box.png') }}" alt="" onerror="this.style.display='none'">
+            </div>
+            <div class="dashboard-stat-content">
+                <div class="stat-label-strong">{% if role_dashboard.show_manager_dashboard %}Products Needing Review{% else %}Total Products{% endif %}</div>
+                <div class="stat-value {% if not role_dashboard.has_data %}empty-value{% endif %}">{% if role_dashboard.has_data %}{% if role_dashboard.show_manager_dashboard %}{{ role_dashboard.review_count }}{% else %}{{ metrics.total_products if metrics else 0 }}{% endif %}{% else %}No data yet{% endif %}</div>
+            </div>
+        </div>
+
+        <div class="card stat-card dashboard-stat-card">
+            <div class="icon-circle">
+                <img src="{{ url_for('static', filename='images/warning.png') }}" alt="" onerror="this.style.display='none'">
+            </div>
+            <div class="dashboard-stat-content">
+                <div class="stat-label-strong">High Stockout Risk</div>
+                <div class="stat-value {% if not role_dashboard.has_data %}empty-value{% endif %}">{% if role_dashboard.has_data %}{% if role_dashboard.show_manager_dashboard %}{{ role_dashboard.high_risk_count }}{% else %}{{ metrics.high_risk_items if metrics else 0 }}{% endif %}{% else %}No data yet{% endif %}</div>
+            </div>
+        </div>
+
+        <div class="card stat-card dashboard-stat-card">
+            <div class="icon-circle">
+                <img src="{{ url_for('static', filename='images/forecast.png') }}" alt="" onerror="this.style.display='none'">
+            </div>
+            <div class="dashboard-stat-content">
+                <div class="stat-label-strong">Rising Demand</div>
+                <div class="stat-value {% if not role_dashboard.has_data %}empty-value{% endif %}">{% if role_dashboard.has_data %}{{ metrics.rising_demand_products if metrics else 0 }}{% else %}No data yet{% endif %}</div>
+            </div>
+        </div>
+
+        <div class="card stat-card dashboard-stat-card">
+            <div class="icon-circle">
+                <img src="{{ url_for('static', filename='images/calendar.png') }}" alt="" onerror="this.style.display='none'">
+            </div>
+            <div class="dashboard-stat-content">
+                <div class="stat-label-strong">{% if role_dashboard.show_manager_dashboard %}Latest Results Generated{% else %}Latest Processed Sales Data{% endif %}</div>
+                <div class="stat-value empty-value stat-value-date">{% if role_dashboard.show_manager_dashboard %}{{ role_dashboard.latest_results_label }}{% else %}{{ role_dashboard.last_processed_label if role_dashboard and role_dashboard.last_processed_label else (page_state.last_processed_label if page_state and page_state.last_processed_label else 'No data yet') }}{% endif %}</div>
+            </div>
+        </div>
+    </div>
+
+    {% if role_dashboard.show_operational_chart %}
+    <div class="grid-row middle-chart-row">
+        <div class="card chart-card">
+            <div class="dashboard-card-header-flex">
+                <div>
+                    <div class="section-title-row">
+                        <h3 class="card-title">{% if role_dashboard.show_manager_dashboard %}Demand Outlook{% else %}Overall Demand Trend{% endif %}</h3>
+                    </div>
+                </div>
+                {% if dashboard_summary.chart_labels and dashboard_summary.chart_datasets %}
+                    <div class="dashboard-focus-chip" aria-label="Demand outlook focus"><span>Focus:</span> {{ dashboard_summary.chart_focus_label }}</div>
+                {% endif %}
+            </div>
+
+            {% if dashboard_summary.chart_labels and dashboard_summary.chart_datasets %}
+                <div class="chart-container dashboard-chart-container">
+                    {% if dashboard_summary.chart_message %}<div class="chart-note mb-2">{{ dashboard_summary.chart_message }}</div>{% endif %}
+                    {% if dashboard_summary.forecast_start_label %}<div class="chart-note chart-note-secondary mb-2">Forecast starts here: {{ dashboard_summary.forecast_start_label }}</div>{% endif %}
+                    <div class="dashboard-chart-wrapper">
+                        <canvas id="forecastChart" data-chart-type="{{ dashboard_summary.chart_type }}" data-chart-labels='{{ dashboard_summary.chart_labels|tojson }}' data-chart-datasets='{{ dashboard_summary.chart_datasets|tojson }}' data-chart-options='{{ dashboard_summary.chart_options|tojson }}'></canvas>
+                    </div>
+                </div>
+            {% else %}
+                <div class="chart-container empty-container page-empty-panel chart-empty-panel">
+                    <div class="empty-state-text">No chart data available yet.</div>
+                </div>
+            {% endif %}
+        </div>
+
+        {% if role_dashboard.show_buyer_behavior %}
+        <div class="card risk-list-card buyer-behavior-card">
+            <div class="dashboard-card-header-flex">
+                <div>
+                    <div class="section-title-row">
+                        <h3 class="card-title">Buyer Behavior Insights</h3>
+                    </div>
+                </div>
+            </div>
+            {% if dashboard_summary.buyer_behavior_insights %}
+                <div class="buyer-insight-list">
+                    {% for item in dashboard_summary.buyer_behavior_insights %}
+                        <div class="buyer-insight-item">
+                            <div class="buyer-insight-marker"></div>
+                            <div class="buyer-insight-copy">
+                                <div class="buyer-insight-title">{{ item.title }}</div>
+                                <p>{{ item.message }}</p>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-container page-empty-panel chart-empty-panel buyer-empty-panel">
+                    <div class="empty-state-text">No data available yet.</div>
+                </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="card risk-list-card dashboard-operation-card manager-focus-card">
+            <div class="section-title-row"><h3 class="card-title">Today’s Store Focus</h3></div>
+            {% if role_dashboard.has_data and role_dashboard.manager_focus_items %}
+                <div class="dashboard-mini-list">
+                    {% for item in role_dashboard.manager_focus_items %}
+                        <div class="dashboard-mini-item">
+                            <strong>{{ item.title }}</strong>
+                            <span>{{ item.message }}</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state-panel page-empty-panel manager-focus-empty-panel">
+                    <div class="empty-state-text">No data available yet.</div>
+                </div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if role_dashboard.show_priority_table %}
+        {% if role_dashboard.show_owner_dashboard %}
+        <div class="dashboard-overview-row">
+        {% endif %}
+
+        <div class="card dashboard-priority-card">
+            <div class="table-header-flex action-header-flex">
+                <div>
+                    <div class="section-title-row">
+                        <h3 class="card-title mb-0">Priority Products &amp; Suggested Decisions</h3>
+                    </div>
+                </div>
+            </div>
+
+            {% if dashboard_summary.dashboard_priority_rows %}
+                <div class="table-responsive dashboard-scroll-shell dashboard-table-scroll">
+                    <table class="data-table dashboard-priority-table" id="dashboardPriorityTable">
+                        <thead>
+                            {% if role_dashboard.show_manager_dashboard %}
+                                <tr>
+                                    <th>Product</th>
+                                    <th>Latest Recorded Stock</th>
+                                    <th>Predicted Demand</th>
+                                    <th>Stockout Risk</th>
+                                    <th>Suggested Decision</th>
+                                </tr>
+                            {% else %}
+                                <tr>
+                                    <th>Product Name</th>
+                                    <th>Latest Recorded Stock</th>
+                                    <th>Predicted Demand</th>
+                                    <th>Stockout Risk</th>
+                                    <th>Main Reason</th>
+                                    <th>Suggested Decision</th>
+                                </tr>
+                            {% endif %}
+                        </thead>
+                        <tbody>
+                            {% for row in dashboard_summary.dashboard_priority_rows %}
+                                <tr>
+                                    <td>{{ row.product_name }}</td>
+                                    <td>{{ row.current_stock }}</td>
+                                    <td>{{ row.forecast_demand }}</td>
+                                    <td>
+                                        {% if row.risk_level == 'High' %}
+                                            <span class="pill high">High</span>
+                                        {% elif row.risk_level == 'Moderate' %}
+                                            <span class="pill moderate">Moderate</span>
+                                        {% elif row.risk_level == 'Low' %}
+                                            <span class="pill low">Low</span>
+                                        {% else %}
+                                            <span class="pill neutral">Needs review</span>
+                                        {% endif %}
+                                    </td>
+                                    {% if role_dashboard.show_manager_dashboard %}
+                                        <td>{{ row.suggested_action }}</td>
+                                    {% else %}
+                                        <td>{{ row.dashboard_main_reason if row.dashboard_main_reason is defined else row.display_note_short if row.display_note_short is defined else row.why_flagged }}</td>
+                                        <td>{{ row.suggested_action }}</td>
+                                    {% endif %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state-panel page-empty-panel">
+                    <div class="empty-state-text">No data available yet.</div>
+                </div>
+            {% endif %}
+        </div>
+
+        {% if role_dashboard.show_owner_dashboard %}
+        <div class="card dashboard-team-activity-card dashboard-recent-activity-card">
+            <div class="dashboard-team-activity-header">
+                <div>
+                    <div class="section-title-row">
+                        <h3 class="card-title mb-0">Recent Activity</h3>
+                    </div>
+                </div>
+                <a href="{{ url_for('activity_logs') }}" class="settings-view-link" data-app-link="true">View All Activity</a>
+            </div>
+
+            {% if recent_activity %}
+                {% set activity_count = recent_activity|length %}
+                <div class="dashboard-team-activity-list {% if activity_count >= 5 %}activity-list-complete{% else %}activity-list-partial{% endif %}" data-activity-count="{{ activity_count }}">
+                    {% for log in recent_activity %}
+                        {% set activity_action = log.action_display or log.action or 'Activity updated' %}
+                        {% set activity_status = log.status_display or log.status or 'Status' %}
+                        <div class="dashboard-team-activity-item">
+                            <div class="dashboard-activity-line dashboard-activity-line-top">
+                                <strong class="dashboard-activity-user">{{ log.user_name }}</strong>
+                                <span class="status-pill dashboard-activity-status {% if activity_status == 'Success' %}status-active{% elif activity_status == 'Unsuccessful' or activity_status == 'Blocked' %}status-inactive{% else %}status-neutral{% endif %}">{{ activity_status }}</span>
+                            </div>
+                            <div class="dashboard-activity-line dashboard-activity-line-bottom">
+                                <span class="dashboard-activity-summary">{{ activity_action }}</span>
+                                <span class="dashboard-activity-date">{{ log.created_label }}</span>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty-state-panel compact-empty-panel activity-empty-panel">
+                    <div class="empty-state-text">No recent activity yet.</div>
+                </div>
+            {% endif %}
+        </div>
+        </div>
+        {% endif %}
+    {% endif %}
+{% endif %}
+{% endblock %}

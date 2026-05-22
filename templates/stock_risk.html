@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Stock Risk Overview</h1>
+</div>
+
+<div class="grid-row four-cols mb-4">
+    <div class="card stat-card row-layout">
+        <div class="stat-icon-large danger-bg">
+            <img src="{{ url_for('static', filename='images/warning.png') }}" alt="">
+        </div>
+        <div>
+            <div class="stat-label">High Risk Products</div>
+            <div class="stat-value empty-value">No data yet</div>
+        </div>
+    </div>
+
+    <div class="card stat-card row-layout">
+        <div class="stat-icon-large warning-bg">
+            <img src="{{ url_for('static', filename='images/warning.png') }}" alt="">
+        </div>
+        <div>
+            <div class="stat-label">Moderate Risk Products</div>
+            <div class="stat-value empty-value">No data yet</div>
+        </div>
+    </div>
+
+    <div class="card stat-card row-layout">
+        <div class="stat-icon-large success-bg">
+            <img src="{{ url_for('static', filename='images/secure.png') }}" alt="">
+        </div>
+        <div>
+            <div class="stat-label">Low Risk Products</div>
+            <div class="stat-value empty-value">No data yet</div>
+        </div>
+    </div>
+
+    <div class="card stat-card row-layout">
+        <div class="stat-icon-large gray-bg">
+            <img src="{{ url_for('static', filename='images/box.png') }}" alt="">
+        </div>
+        <div>
+            <div class="stat-label">Total Products</div>
+            <div class="stat-value empty-value">
+                {% if data is not none and 'Product Name' in data.columns %}
+                    {{ data['Product Name'].nunique() }}
+                {% else %}
+                    No data yet
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="table-header-flex">
+        <div>
+            <h3 class="card-title">Stock Risk List</h3>
+            <p class="card-subtitle mb-0">Products requiring attention</p>
+        </div>
+
+        <div class="controls-row mb-0">
+            <div class="control-group">
+                <label class="control-label">Filter by Stockout Risk</label>
+                <select class="form-select" {% if data is none %}disabled{% endif %}>
+                    <option>All</option>
+                    <option>High Risk</option>
+                    <option>Moderate Risk</option>
+                    <option>Low Risk</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Sort by</label>
+                <select class="form-select" {% if data is none %}disabled{% endif %}>
+                    <option>Name A-Z</option>
+                    <option>Stock Ascending</option>
+                    <option>Stock Descending</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="empty-state-panel page-empty-panel mt-3">
+        <div class="empty-state-text">
+            {% if data is not none %}
+                Sales data is available. Stockout risk insights will appear after results are generated.
+            {% else %}
+                No data available yet.
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

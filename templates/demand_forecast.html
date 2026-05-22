@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Demand Forecast</h1>
+</div>
+
+<div class="controls-row mb-4">
+    <div class="control-group">
+        <label class="control-label">Select Product</label>
+        <select class="form-select" {% if data is none %}disabled{% endif %}>
+            <option>All Products</option>
+            {% if data is not none and 'Product Name' in data.columns %}
+                {% for product in data['Product Name'].dropna().unique() %}
+                    <option>{{ product }}</option>
+                {% endfor %}
+            {% endif %}
+        </select>
+    </div>
+
+    <div class="control-group">
+        <label class="control-label">Forecast View</label>
+        <div class="segmented-control">
+            <button class="seg-btn active" {% if data is none %}disabled{% endif %}>Daily</button>
+            <button class="seg-btn" {% if data is none %}disabled{% endif %}>Weekly</button>
+            <button class="seg-btn" {% if data is none %}disabled{% endif %}>Monthly</button>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <h3 class="card-title">Demand Trend</h3>
+    <p class="card-subtitle">Based on uploaded sales data</p>
+
+    {% if data is not none %}
+        <div class="empty-state-panel page-empty-panel">
+            <div class="empty-state-text">Sales data is available. Predicted demand chart will appear after results are generated.</div>
+        </div>
+    {% else %}
+        <div class="empty-state-panel page-empty-panel">
+            <div class="empty-state-text">No data available yet.</div>
+        </div>
+    {% endif %}
+</div>
+
+<div class="grid-row forecast-bottom-row">
+    <div class="card">
+        <h3 class="card-title">Product Demand Summary</h3>
+
+        <div class="empty-state-panel page-empty-panel">
+            <div class="empty-state-text">
+                {% if data is not none %}
+                    Demand summary will appear after results are generated.
+                {% else %}
+                    No data available yet.
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="card-title">Demand Details</h3>
+
+        <div class="empty-state-panel page-empty-panel">
+            <div class="empty-state-text">
+                {% if data is not none %}
+                    Demand details will appear after results are generated.
+                {% else %}
+                    No data available yet.
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

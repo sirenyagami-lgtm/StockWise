@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockWise</title>
+    <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+{% set is_onboarding_page = request.endpoint == 'first_time_setup' %}
+<body class="{% if is_onboarding_page %}onboarding-body{% endif %}" data-authenticated="{{ 'true' if current_user else 'false' }}">
+    {% if is_onboarding_page %}
+    <header class="onboarding-brand-topbar" aria-label="StockWise">
+        <a href="{{ url_for('first_time_setup') }}" class="onboarding-brand">
+            <img src="{{ url_for('static', filename='images/stockwise_logo.png') }}" alt="StockWise Logo" onerror="this.style.display='none'">
+            <span>StockWise</span>
+        </a>
+    </header>
+    {% endif %}
+    {% if not is_onboarding_page %}
+    <aside class="sidebar" data-persistent-sidebar="true">
+        <a href="{{ url_for('dashboard') }}" class="brand app-nav-link" data-app-link="true">
+            <img src="{{ url_for('static', filename='images/stockwise_logo.png') }}" alt="StockWise Logo" onerror="this.style.display='none'">
+            <h2>StockWise</h2>
+        </a>
+
+        <nav class="sidebar-nav">
+            <a href="{{ url_for('dashboard') }}" class="nav-link app-nav-link {% if current_path in ['/', '/dashboard'] %}active{% endif %}" data-app-link="true" data-nav-key="dashboard">
+                <img src="{{ url_for('static', filename='images/home.png') }}" alt="" onerror="this.style.display='none'"> Dashboard
+            </a>
+
+            {% if 'upload_data' in visible_nav_keys %}
+            <a href="{{ url_for('upload_data') }}" class="nav-link app-nav-link {% if current_path == '/upload_data' %}active{% endif %}" data-app-link="true" data-nav-key="upload_data">
+                <img src="{{ url_for('static', filename='images/upload.png') }}" alt="" onerror="this.style.display='none'"> Upload Sales Data
+            </a>
+            {% endif %}
+
+            {% if 'insights' in visible_nav_keys %}
+            <a href="{{ url_for('insights') }}" class="nav-link app-nav-link {% if current_path == '/insights' %}active{% endif %}" data-app-link="true" data-nav-key="insights">
+                <img src="{{ url_for('static', filename='images/forecast.png') }}" alt="" onerror="this.style.display='none'"> Insights
+            </a>
+            {% endif %}
+
+            {% if 'products' in visible_nav_keys %}
+            <a href="{{ url_for('product_list') }}" class="nav-link app-nav-link {% if current_path in ['/product_list', '/products'] %}active{% endif %}" data-app-link="true" data-nav-key="products">
+                <img src="{{ url_for('static', filename='images/product.png') }}" alt="" onerror="this.style.display='none'"> Products
+            </a>
+            {% endif %}
+
+            {% if 'reports' in visible_nav_keys %}
+            <a href="{{ url_for('reports') }}" class="nav-link app-nav-link {% if current_path == '/reports' %}active{% endif %}" data-app-link="true" data-nav-key="reports">
+                <img src="{{ url_for('static', filename='images/report.png') }}" alt="" onerror="this.style.display='none'"> Reports
+            </a>
+            {% endif %}
+
+            {% if 'settings' in visible_nav_keys %}
+            {% set settings_nav_label = 'Settings' %}
+            <a href="{{ url_for('settings') }}" class="nav-link app-nav-link {% if current_path in ['/settings', '/team_access', '/data_management', '/activity_logs'] %}active{% endif %}" data-app-link="true" data-nav-key="settings">
+                <img src="{{ url_for('static', filename='images/settings.png') }}" alt="" onerror="this.style.display='none'"> {{ settings_nav_label }}
+            </a>
+            {% endif %}
+        </nav>
+
+    </aside>
+    {% endif %}
+
+    <div class="main-wrapper {% if is_onboarding_page %}onboarding-main-wrapper{% endif %}">
+        {% if not is_onboarding_page %}
+        <header class="topbar" data-persistent-topbar="true">
+            <div class="topbar-left"></div>
+            {% set notifications = notification_context.get('items', []) if notification_context else [] %}
+            {% set unread_count = notification_context.get('unread_count', 0) if notification_context else 0 %}
+
+            <div class="topbar-right" data-topbar-actions>
+                <div class="topbar-dropdown-shell notification-shell">
+                    <button type="button" class="topbar-icon-button" id="notificationToggle" aria-expanded="false" aria-controls="notificationDropdown" aria-label="Open notifications">
+                        <img src="{{ url_for('static', filename='images/notification.png') }}" alt="" onerror="this.style.display='none'">
+                        {% if unread_count %}
+                            <span class="notification-badge">{{ unread_count if unread_count < 10 else '9+' }}</span>
+                        {% endif %}
+                    </button>
+
+                    <div class="topbar-dropdown-panel notification-dropdown" id="notificationDropdown" aria-hidden="true">
+                        <div class="topbar-dropdown-header">
+                            <div>
+                                <h3>Notifications</h3>
+                                <p>Updates from your StockWise workspace</p>
+                            </div>
+                        </div>
+                        <div class="notification-tabs" role="tablist" aria-label="Notification filters">
+                            <button type="button" class="notification-tab active" data-notification-tab="all">All</button>
+                            <button type="button" class="notification-tab" data-notification-tab="unread">Unread</button>
+                        </div>
+                        <div class="notification-list" data-notification-list>
+                            {% if notifications %}
+                                {% for notification in notifications %}
+                                    <div class="notification-item {% if not notification.is_read %}unread{% endif %}" data-notification-item data-notification-id="{{ notification.id }}" data-read-state="{{ 'read' if notification.is_read else 'unread' }}">
+                                        <span class="notification-dot" aria-hidden="true"></span>
+                                        <div class="notification-copy">
+                                            <strong>{{ notification.title }}</strong>
+                                            <p>{{ notification.message }}</p>
+                                            {% if notification.created_label %}<small>{{ notification.created_label }}</small>{% endif %}
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            {% endif %}
+                            <div class="notification-empty" data-notification-empty {% if notifications %}hidden{% endif %}>No notifications yet.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="topbar-dropdown-shell account-shell">
+                    <button type="button" class="account-toggle" id="accountToggle" aria-expanded="false" aria-controls="accountDropdown">
+                        <span class="user-info">
+                            <span class="user-name">{{ current_user.name if current_user else 'Admin' }}</span>
+                            <span class="user-role">{{ current_role if current_role else (current_user.role if current_user and current_user.role else 'Owner') }}</span>
+                        </span>
+                        <img src="{{ url_for('static', filename=current_user.profile_image) if current_user and current_user.profile_image else url_for('static', filename='images/profile.png') }}" alt="Profile" class="profile-img" onerror="this.src='{{ url_for('static', filename='images/profile.png') }}'">
+                    </button>
+
+                    <div class="topbar-dropdown-panel account-dropdown" id="accountDropdown" aria-hidden="true">
+                        <div class="account-dropdown-summary">
+                            <img src="{{ url_for('static', filename=current_user.profile_image) if current_user and current_user.profile_image else url_for('static', filename='images/profile.png') }}" alt="Profile" onerror="this.src='{{ url_for('static', filename='images/profile.png') }}'">
+                            <div>
+                                <strong>{{ current_user.name if current_user else 'Admin' }}</strong>
+                                <span>{{ current_role if current_role else (current_user.role if current_user and current_user.role else 'Owner') }}</span>
+                                {% if current_user and current_user.email %}<small>{{ current_user.email }}</small>{% endif %}
+                            </div>
+                        </div>
+                        <div class="account-menu-list">
+                            {% if current_role == 'Owner' %}
+                                <a href="{{ url_for('settings') }}#profile-account" class="account-menu-item app-nav-link" data-app-link="true"><span>Account Settings</span></a>
+                                <a href="{{ url_for('settings') }}#store-information" class="account-menu-item app-nav-link" data-app-link="true"><span>Store Information</span></a>
+                                <a href="{{ url_for('team_access') }}" class="account-menu-item app-nav-link" data-app-link="true"><span>Manage Team</span></a>
+                                <a href="{{ url_for('activity_logs') }}" class="account-menu-item app-nav-link" data-app-link="true"><span>Activity Logs</span></a>
+                                <a href="{{ url_for('settings') }}" class="account-menu-item app-nav-link" data-app-link="true"><span>Settings</span></a>
+                            {% elif current_role == 'Store Manager' %}
+                                <a href="{{ url_for('settings') }}#profile-account" class="account-menu-item app-nav-link" data-app-link="true"><span>Profile</span></a>
+                            {% elif current_role == 'Operational Assistant' %}
+                                <a href="{{ url_for('settings') }}#profile-account" class="account-menu-item app-nav-link" data-app-link="true"><span>Profile</span></a>
+                            {% else %}
+                                <a href="{{ url_for('settings') }}#profile-account" class="account-menu-item app-nav-link" data-app-link="true"><span>Profile</span></a>
+                            {% endif %}
+                            <a href="{{ url_for('logout') }}" class="account-menu-item danger" data-confirm-logout="true">
+                                <span>Log Out</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+        {% endif %}
+
+        <main class="content {% if is_onboarding_page %}onboarding-content{% endif %}" id="app-content-root">
+            <div id="page-content" data-page-path="{{ request.full_path if request.query_string else request.path }}">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+
+
+    <div class="logout-confirm-overlay" id="logoutConfirmOverlay" hidden>
+        <div class="logout-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="logoutConfirmTitle">
+            <h3 id="logoutConfirmTitle">Log out of StockWise?</h3>
+            <p>You will need to sign in again to access your store workspace.</p>
+            <div class="logout-confirm-actions">
+                <button type="button" class="btn btn-outline" data-logout-cancel>Cancel</button>
+                <a href="{{ url_for('logout') }}" class="btn btn-yellow" data-logout-confirm>Log Out</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

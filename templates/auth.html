@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StockWise Authentication</title>
+    <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-screen">
+        <div class="auth-background"></div>
+        <div class="auth-shell">
+            <div class="auth-panel">
+                <div class="auth-brand" id="authBrand">
+                    <img src="{{ url_for('static', filename='images/stockwise_branding.png') }}" alt="StockWise Branding" class="auth-branding-img">
+                </div>
+
+                <div class="auth-toggle" role="tablist" aria-label="Authentication Form Switcher">
+                    <button type="button" class="auth-tab {% if active_form == 'signup' %}active{% endif %}" data-auth-target="signup" aria-selected="{% if active_form == 'signup' %}true{% else %}false{% endif %}">
+                        Sign Up
+                    </button>
+                    <span class="auth-divider">|</span>
+                    <button type="button" class="auth-tab {% if active_form == 'login' %}active{% endif %}" data-auth-target="login" aria-selected="{% if active_form == 'login' %}true{% else %}false{% endif %}">
+                        Log In
+                    </button>
+                </div>
+
+                <div id="authFeedback" class="auth-feedback {% if auth_message %}is-visible {% if auth_message_type == 'error' %}is-error{% else %}is-info{% endif %}{% endif %}" aria-live="polite">
+                    {{ auth_message if auth_message else "" }}
+                </div>
+
+                <div class="auth-form-stage {% if active_form == 'signup' %}stage-signup{% else %}stage-login{% endif %}" id="authFormStage">
+                    <div class="auth-form-wrap {% if active_form == 'signup' %}show-signup{% else %}show-login{% endif %}" id="authFormWrap">
+                        <form method="POST" class="auth-form auth-form-login {% if active_form == 'login' %}active-form{% endif %}" id="loginForm" novalidate>
+                            <input type="hidden" name="action" value="login">
+                            <div class="auth-fields">
+                                <input type="email" name="email" class="auth-input {% if auth_field_errors.login_email %}input-error{% endif %}" placeholder="Email" value="{{ login_email|default('', true) }}" autocomplete="email" data-auth-field="login_email" required>
+                                <div class="password-container">
+                                    <input type="password" name="password" class="auth-input {% if auth_field_errors.login_password %}input-error{% endif %}" placeholder="Password" autocomplete="current-password" data-auth-field="login_password" required>
+                                    <i class="fa-regular fa-eye toggle-password hidden" aria-hidden="true" title="Toggle password visibility"></i>
+                                </div>
+                            </div>
+                            <button type="submit" class="auth-submit-btn">Log In</button>
+                            <p class="auth-helper-text">
+                                Don't have an account? <button type="button" class="auth-inline-link" data-auth-target="signup">Sign Up</button>
+                            </p>
+                        </form>
+
+                        <form method="POST" class="auth-form auth-form-signup {% if active_form == 'signup' %}active-form{% endif %}" id="signupForm" novalidate>
+                            <input type="hidden" name="action" value="signup">
+                            <div class="auth-fields">
+                                <input type="text" name="name" class="auth-input {% if auth_field_errors.name %}input-error{% endif %}" placeholder="Full Name" value="{{ signup_name|default('', true) }}" autocomplete="name" data-auth-field="name" required>
+                                <input type="email" name="email" class="auth-input {% if auth_field_errors.email %}input-error{% endif %}" placeholder="Email" value="{{ signup_email|default('', true) }}" autocomplete="email" data-auth-field="email" required>
+                                <div class="password-container">
+                                    <input type="password" name="password" class="auth-input {% if auth_field_errors.password %}input-error{% endif %}" placeholder="Password" minlength="8" autocomplete="new-password" data-auth-field="password" required>
+                                    <i class="fa-regular fa-eye toggle-password hidden" aria-hidden="true" title="Toggle password visibility"></i>
+                                </div>
+                                <div class="password-container">
+                                    <input type="password" name="confirm_password" class="auth-input {% if auth_field_errors.confirm_password %}input-error{% endif %}" placeholder="Confirm Password" minlength="8" autocomplete="new-password" aria-describedby="signupPasswordRule" data-auth-field="confirm_password" required>
+                                    <i class="fa-regular fa-eye toggle-password hidden" aria-hidden="true" title="Toggle password visibility"></i>
+                                </div>
+                                <p class="auth-password-rule" id="signupPasswordRule">Password must be at least 8 characters and include uppercase, lowercase, number, and special character.</p>
+                            </div>
+                            <button type="submit" class="auth-submit-btn">Sign Up</button>
+                            <p class="auth-helper-text">
+                                Already have an account? <button type="button" class="auth-inline-link" data-auth-target="login">Log In</button>
+                            </p>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.AUTH_INITIAL_FORM = "{{ active_form|default('login', true) }}";
+    </script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+</body>
+</html>

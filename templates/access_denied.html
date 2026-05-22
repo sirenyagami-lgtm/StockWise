@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="access-denied-shell">
+    <div class="card access-denied-card">
+        <div class="access-denied-icon">!</div>
+        <h1 class="page-title">Access not available</h1>
+        <p class="page-subtitle">
+            Your current role{% if user_role %} ({{ user_role }}){% endif %} cannot open this page{% if blocked_page %}: {{ blocked_page }}{% endif %}.
+        </p>
+        <p class="access-denied-note">You can return to your dashboard or ask the Owner if your store access needs to be changed.</p>
+        <div class="access-denied-actions">
+            <a href="{{ url_for('dashboard') }}" class="btn btn-yellow app-nav-link" data-app-link="true">Return to Dashboard</a>
+            {% if 'settings' in visible_nav_keys %}
+                <a href="{{ url_for('settings') }}#profile" class="btn btn-outline app-nav-link" data-app-link="true">Open My Account</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

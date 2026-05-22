@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+{% if settings_message %}
+    <div class="settings-toast status-alert status-{{ settings_message_type }}" data-auto-dismiss-toast>
+        {{ settings_message }}
+    </div>
+{% endif %}
+
+<div class="page-header page-header-with-action settings-subpage-header">
+    <div class="page-header-main">
+        <h1 class="page-title">Data Management</h1>
+        <p class="page-subtitle">Review the processed sales data currently used by StockWise.</p>
+    </div>
+    <div class="page-header-actions">
+        <a href="{{ url_for('settings') }}#data-management" class="btn btn-outline" data-app-link="true">Back to Settings</a>
+    </div>
+</div>
+
+<div class="settings-summary-grid settings-data-summary-grid mb-4">
+    <div class="settings-summary-card"><span>Latest processed dataset</span><strong>{{ data_management_summary.latest_dataset }}</strong></div>
+    <div class="settings-summary-card"><span>Sales records</span><strong>{{ data_management_summary.sales_records }}</strong></div>
+    <div class="settings-summary-card"><span>Products detected</span><strong>{{ data_management_summary.products_detected }}</strong></div>
+    <div class="settings-summary-card"><span>Date coverage</span><strong>{{ data_management_summary.date_coverage }}</strong></div>
+</div>
+
+<div class="card settings-management-page-card">
+    <div class="section-title-row settings-section-inline-header">
+        <div>
+            <h3 class="card-title">Processed Data Actions</h3>
+            <p class="settings-help-text">Use these options only when you need to review or reset the data used by Dashboard, Insights, Products, and Reports.</p>
+        </div>
+    </div>
+    <div class="settings-warning-card mt-3">
+        <strong>Clear processed data</strong>
+        <p>This will remove the processed sales data used in Dashboard, Insights, Products, and Reports. Your account, store information, employees, and activity logs will remain.</p>
+        <form method="POST" action="{{ url_for('clear_processed_data_route') }}" class="settings-inline-action-form">
+            <button type="submit"
+                    class="btn btn-outline danger"
+                    {% if not data_management_summary.has_processed_data %}disabled{% endif %}
+                    data-confirm-message="Clear processed sales data from Dashboard, Insights, Products, and Reports? Accounts, employees, store settings, and activity logs will remain.">
+                Clear processed data
+            </button>
+        </form>
+        <small>{% if data_management_summary.has_processed_data %}This clears only processed sales and generated prediction results, not accounts or store settings.{% else %}This action becomes available after processed sales data exists.{% endif %}</small>
+    </div>
+    <div class="settings-management-actions mt-3">
+        <a href="{{ url_for('upload_data') }}" class="btn btn-yellow" data-app-link="true">Start New Dataset</a>
+    </div>
+</div>
+{% endblock %}

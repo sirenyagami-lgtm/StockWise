@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header-with-action upload-page-header">
+    <div class="page-header-main">
+        <div class="page-title-row">
+            <h1 class="page-title">Upload Sales Data</h1></div>
+    </div>
+</div>
+
+<div
+    class="card process-steps-card mb-4 upload-wizard-shell"
+    id="uploadWizard"
+    data-current-step="{{ upload_wizard.current_step }}"
+    data-max-step="{{ upload_wizard.max_step }}"
+    >
+    <div class="process-steps-grid upload-process-steps">
+        <button type="button" class="process-step-item {% if upload_wizard.current_step == 1 %}active{% elif upload_wizard.current_step > 1 %}completed{% endif %}" data-upload-step="1">
+            <span class="process-step-number">1</span>
+            <span class="process-step-text">Upload File</span>
+        </button>
+        <button type="button" class="process-step-item {% if upload_wizard.current_step == 2 %}active{% elif upload_wizard.current_step > 2 %}completed{% elif upload_wizard.max_step < 2 %}locked{% endif %}" data-upload-step="2">
+            <span class="process-step-number">2</span>
+            <span class="process-step-text">Check Records</span>
+        </button>
+        <button type="button" class="process-step-item {% if upload_wizard.current_step == 3 %}active{% elif upload_wizard.current_step > 3 %}completed{% elif upload_wizard.max_step < 3 %}locked{% endif %}" data-upload-step="3">
+            <span class="process-step-number">3</span>
+            <span class="process-step-text">Clean Records</span>
+        </button>
+        <button type="button" class="process-step-item {% if upload_wizard.current_step == 4 %}active{% elif upload_wizard.max_step < 4 %}locked{% endif %}" data-upload-step="4">
+            <span class="process-step-number">4</span>
+            <span class="process-step-text">Generate Results</span>
+        </button>
+    </div>
+</div>
+
+<div class="upload-wizard-panels" id="uploadWizardPanels">
+    <section class="upload-step-panel {% if upload_wizard.current_step == 1 %}active{% endif %}" data-upload-step-panel="1">
+        <div class="upload-grid upload-grid-step">
+            <div class="card dropzone-card upload-step-card" id="dropzone">
+                <form method="POST" enctype="multipart/form-data" class="dropzone-content" id="selectFileForm">
+                    <input type="hidden" name="action" value="select">
+                    <input type="hidden" name="upload_mode" value="{{ upload_status.last_upload_mode }}" id="selectedUploadModeInput">
+
+                    <div class="dropzone-center-block">
+                        <p class="dropzone-text">Drag and drop your transaction file here</p>
+                        <p class="dropzone-or">or</p>
+
+                        <label for="fileInput" class="btn btn-yellow cursor-pointer">
+                            Choose File
+                        </label>
+                        <input type="file" id="fileInput" name="file" accept=".csv,.xlsx,.xls" hidden>
+                    </div>
+
+                    <p class="dropzone-hint dropzone-hint-bottom">Accepted formats: CSV, XLSX, XLS</p>
+
+                    <div class="upload-progress-panel" data-upload-progress-panel hidden>
+                        <div class="upload-progress-header">
+                            <span data-upload-progress-label>Uploading sales file...</span>
+                            <strong data-upload-progress-value>0%</strong>
+                        </div>
+                        <div class="upload-progress-track" aria-hidden="true">
+                            <div class="upload-progress-bar" data-upload-progress-bar></div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <div class="upload-sidebar">
+                <div class="card upload-mode-sidebar-card upload-step-card">
+                    <h3 class="card-title">Upload Mode</h3>
+                    <form method="POST" class="upload-mode-inline-form upload-mode-sidebar-form" id="uploadModeForm">
+                        <input type="hidden" name="action" value="update_mode">
+                        <div class="upload-mode-sidebar-row">
+                            <select class="form-select upload-mode-inline-select" id="uploadModeControl" name="upload_mode">
+                                <option value="new" {% if upload_status.last_upload_mode == 'new' %}selected{% endif %}>New sales dataset</option>
+                                <option value="append" {% if upload_status.last_upload_mode == 'append' %}selected{% endif %}>Append missing records</option>
+                                <option value="replace" {% if upload_status.last_upload_mode == 'replace' %}selected{% endif %}>Replace previous processed data</option>
+                            </select>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="card processed-status-card upload-step-card">
+                    <h3 class="card-title">Upload Status</h3>
+                    <div class="status-stack">
+                        <div class="status-line"><strong>Latest processed sales data:</strong> {{ page_state.last_processed_label }}</div>
+                        <div class="status-line"><strong>Coverage period:</strong> {{ upload_status.processed_coverage_period }}</div>
+                        <div class="status-line"><strong>Upload freshness:</strong> {{ upload_status.freshness_label }}</div>
+                        {% if upload_status.missing_date_gaps %}
+                            <div class="status-line"><strong>Missing date gaps:</strong> {{ upload_status.missing_date_gaps|join(', ') }}</div>
+                        {% else %}
+                            <div class="status-line"><strong>Missing date gaps:</strong> No obvious missing date gaps detected</div>
+                        {% endif %}
+                        <div class="status-line small-muted-line">{{ upload_status.recommended_upload_frequency }}</div>
+                    </div>
+                </div>
+
+                <div class="card file-info-card upload-step-card">
+                    <h3 class="card-title">Workspace File</h3>
+
+                    {% if selected_data is not none and selected_filename %}
+                        <div class="file-details upload-file-preview-card upload-file-preview-card-text-only">
+                            <div class="upload-file-preview-body">
+                                <p class="file-name">{{ selected_file_info.name or selected_filename }}</p>
+                                <div class="upload-file-meta-grid">
+                                    <span><strong>Type:</strong> {{ selected_file_info.type }}</span>
+                                    <span><strong>Size:</strong> {{ selected_file_info.size }}</span>
+                                    <span><strong>Status:</strong> {{ selected_file_info.status }}</span>
+                                </div>
+                                <p class="file-size">Rows detected: {{ validation_summary.total_rows }}</p>
+                                <p class="file-size">Columns detected: {{ validation_summary.total_columns }}</p>
+                                <p class="file-size">Coverage period: {{ upload_status.selected_coverage_period }}</p>
+                                <p class="file-size">Selected upload mode: <span data-upload-mode-label>{{ preprocessing_summary.mode_label }}</span></p>
+                                {% if upload_message %}
+                                    <p class="upload-workspace-feedback {% if upload_message_type == 'error' %}danger-text{% elif upload_message_type == 'success' %}success-text{% elif upload_message_type == 'warning' %}warning-text{% else %}info-text{% endif %}">{{ upload_message }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        {% if upload_message_type != 'success' %}
+                            <div class="upload-actions">
+                                <form method="POST" class="w-100" data-clear-upload-form>
+                                    <input type="hidden" name="action" value="clear_selected">
+                                    <button class="btn btn-outline w-100" type="submit">Clear Upload</button>
+                                </form>
+                            </div>
+                        {% endif %}
+                    {% else %}
+                        <div class="empty-text">No file selected yet.</div>
+                        {% if upload_message %}
+                            <p class="upload-workspace-feedback {% if upload_message_type == 'error' %}danger-text{% elif upload_message_type == 'success' %}success-text{% elif upload_message_type == 'warning' %}warning-text{% else %}info-text{% endif %}">{{ upload_message }}</p>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="wizard-nav-row wizard-nav-row-end upload-step-nav-row">
+            <button type="button" class="btn btn-yellow" data-upload-next {% if upload_wizard.max_step < 2 %}disabled{% endif %}>Next</button>
+        </div>
+    </section>
+
+<section class="upload-step-panel {% if upload_wizard.current_step == 2 %}active{% endif %}" data-upload-step-panel="2">
+        <div class="card upload-analysis-card upload-step-card">
+            <div class="section-title-row">
+                <h3 class="card-title">Check Records</h3>
+            </div>
+
+            {% if selected_data is not none %}
+                <div class="analysis-list">
+                    <div class="analysis-list-item"><span>Total rows</span><strong>{{ validation_summary.total_rows }}</strong></div>
+                    <div class="analysis-list-item"><span>Rows ready for checking</span><strong>{{ validation_summary.valid_rows }}</strong></div>
+                    <div class="analysis-list-item"><span>Missing required columns</span><strong>{{ validation_summary.missing_required_columns|join(', ') if validation_summary.missing_required_columns else 'None' }}</strong></div>
+                    {% if validation_summary.missing_required_columns %}
+                        <div class="analysis-helper-note warning-note">Required columns must be added before results can be generated.</div>
+                    {% endif %}
+                    <div class="analysis-list-item"><span>Invalid date rows</span><strong>{{ validation_summary.invalid_date_rows }}</strong></div>
+                    <div class="analysis-list-item"><span>Invalid quantity rows</span><strong>{{ validation_summary.invalid_quantity_rows }}</strong></div>
+                    <div class="analysis-list-item"><span>Missing product rows</span><strong>{{ validation_summary.invalid_product_rows }}</strong></div>
+                    <div class="analysis-list-item"><span>Possible duplicate records found</span><strong>{{ validation_summary.duplicate_rows }}</strong></div>
+                    <div class="analysis-list-item status-row"><span>Status</span><strong class="status-{{ validation_summary.status_class }}">{{ validation_summary.status_label }}</strong></div>
+                    {% if validation_summary.warning_messages %}
+                        <div class="upload-warning-list" aria-label="Record check notes">
+                            {% for warning in validation_summary.warning_messages %}
+                                <div class="upload-warning-item">{{ warning }}</div>
+                            {% endfor %}
+                        </div>
+                    {% elif validation_summary.can_process %}
+                        <div class="analysis-helper-note success-note">No major issues detected.</div>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div class="empty-state-panel compact-empty-panel upload-empty-panel">
+                    <div class="empty-state-text">Upload a file first to check if the records are ready for analysis.</div>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="card upload-step-card upload-preview-card mt-4">
+            <div class="section-title-row">
+                <h3 class="card-title mb-0">Preview Data</h3>
+            </div>
+
+            {% if preview_source is not none %}
+                <div class="table-responsive upload-step-table-shell">
+                    <table class="data-table" id="previewTable">
+                        <thead>
+                            <tr>
+                                {% for col in preview_source.columns %}
+                                    <th>{{ col }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for _, row in preview_source.head(10).iterrows() %}
+                                <tr>
+                                    {% for col in preview_source.columns %}
+                                        <td>{{ row[col] }}</td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state-panel upload-step-empty-panel upload-empty-panel">
+                    <div class="empty-state-text">Upload a transaction file to preview your sales records here.</div>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="wizard-nav-row upload-step-nav-row">
+            <button type="button" class="btn btn-outline" data-upload-prev>Back</button>
+            <button type="button" class="btn btn-yellow" data-upload-next {% if upload_wizard.max_step < 3 %}disabled{% endif %}>Next</button>
+        </div>
+    </section>
+
+    <section class="upload-step-panel {% if upload_wizard.current_step == 3 %}active{% endif %}" data-upload-step-panel="3">
+        <div class="card upload-analysis-card upload-step-card">
+            <div class="section-title-row">
+                <h3 class="card-title">Clean Records</h3>
+            </div>
+
+            {% if selected_data is not none %}
+                <div class="analysis-list">
+                    <div class="analysis-list-item"><span>Rows before preprocessing</span><strong>{{ preprocessing_summary.rows_before }}</strong></div>
+                    <div class="analysis-list-item"><span>Rows used for analysis</span><strong>{{ preprocessing_summary.rows_after }}</strong></div>
+                    <div class="analysis-list-item"><span>Rows excluded from analysis</span><strong>{{ preprocessing_summary.excluded_rows }}</strong></div>
+                    <div class="analysis-list-item"><span>Duplicate records removed</span><strong>{{ preprocessing_summary.duplicates_removed }}</strong></div>
+                    {% if preprocessing_summary.duplicates_removed and preprocessing_summary.duplicates_removed != validation_summary.duplicate_rows %}
+                        <div class="analysis-helper-note">{{ preprocessing_summary.duplicate_note }}</div>
+                    {% endif %}
+                    <div class="analysis-list-item"><span>Missing values handled</span><strong>{{ preprocessing_summary.missing_values_handled }}</strong></div>
+                    <div class="analysis-list-item"><span>Dates cleaned</span><strong>{{ preprocessing_summary.normalized_dates }}</strong></div>
+                    <div class="analysis-list-item"><span>Day patterns prepared</span><strong>{{ preprocessing_summary.generated_day_features }}</strong></div>
+                    <div class="analysis-list-item"><span>Time patterns prepared</span><strong>{{ preprocessing_summary.generated_time_features }}</strong></div>
+                    <div class="analysis-list-item"><span>Payday indicators prepared</span><strong>{{ preprocessing_summary.generated_payday_flags }}</strong></div>
+                    <div class="analysis-list-item status-row"><span>Processing mode</span><strong data-upload-mode-label>{{ preprocessing_summary.mode_label }}</strong></div>
+                </div>
+            {% else %}
+                <div class="empty-state-panel compact-empty-panel upload-empty-panel">
+                    <div class="empty-state-text">Upload a file first to preview how records will be cleaned and prepared for analysis.</div>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="wizard-nav-row upload-step-nav-row">
+            <button type="button" class="btn btn-outline" data-upload-prev>Back</button>
+            <button type="button" class="btn btn-yellow" data-upload-next {% if upload_wizard.max_step < 4 %}disabled{% endif %}>Next</button>
+        </div>
+    </section>
+
+    <section class="upload-step-panel {% if upload_wizard.current_step == 4 %}active{% endif %}" data-upload-step-panel="4">
+        <div class="card upload-generation-card upload-step-card {% if processed_filename and upload_message_type == 'success' %}upload-generation-card-success{% endif %}">
+            <div class="section-title-row">
+                <h3 class="card-title">Generate Results</h3>
+            </div>
+
+            {% if processed_filename and upload_message_type == "success" %}
+                <div class="upload-success-panel">
+                    <p class="success-text upload-success-title">Results generated successfully.</p>
+                    <p class="upload-success-message">Dashboard, Insights, Products, and Reports now reflect the latest processed sales data.</p>
+                </div>
+            {% else %}
+                <div class="generation-summary-grid upload-review-summary-grid">
+                    <div class="generation-summary-item">
+                        <span>Selected file</span>
+                        <strong>{{ selected_filename if selected_filename else 'No file selected yet' }}</strong>
+                    </div>
+                    <div class="generation-summary-item">
+                        <span>Upload mode</span>
+                        <strong data-upload-mode-label>{{ preprocessing_summary.mode_label }}</strong>
+                    </div>
+                    <div class="generation-summary-item">
+                        <span>Rows ready for processing</span>
+                        <strong>{{ preprocessing_summary.rows_after if preprocessing_summary.rows_after else 0 }}</strong>
+                    </div>
+                    <div class="generation-summary-item">
+                        <span>Date coverage</span>
+                        <strong>{{ upload_status.selected_coverage_period }}</strong>
+                    </div>
+                    <div class="generation-summary-item">
+                        <span>Validation status</span>
+                        <strong>{{ validation_summary.status_label }}</strong>
+                    </div>
+                    <div class="generation-summary-item">
+                        <span>Cleaning status</span>
+                        <strong>{{ preprocessing_summary.status_label }}</strong>
+                    </div>
+                </div>
+
+                <div class="generation-feedback" id="feedbackPanel">
+                    {% if upload_message and upload_message_type == 'error' %}
+                        <p class="danger-text">{{ upload_message }}</p>
+                    {% elif upload_message and upload_message_type == 'warning' %}
+                        <p class="warning-text">{{ upload_message }}</p>
+                    {% elif upload_message and upload_message_type == 'success' %}
+                        <p class="success-text">{{ upload_message }}</p>
+                    {% elif upload_message and upload_message_type == 'info' %}
+                        <p class="info-text">{{ upload_message }}</p>
+                    {% else %}
+                        <p class="empty-text">Review the summary, then generate results when the records are ready.</p>
+                    {% endif %}
+                </div>
+
+                <div class="generation-actions upload-step-action-group">
+                    <form method="POST" class="w-100 generation-form" id="processResultsForm" data-processing-form="true">
+                        <input type="hidden" name="action" value="process">
+                        <input type="hidden" name="upload_mode" value="{{ upload_status.last_upload_mode }}" id="processUploadModeInput">
+                        <button class="btn btn-yellow" type="submit" id="generateResultsButton" data-processing-submit {% if not validation_summary.can_process %}disabled{% endif %}>Generate Results</button>
+                    </form>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="wizard-nav-row upload-step-nav-row">
+            <button type="button" class="btn btn-outline" data-upload-prev>Back</button>
+            {% if processed_filename and upload_message_type == "success" %}
+                <form method="POST" class="wizard-finish-form">
+                    <input type="hidden" name="action" value="finish_upload">
+                    <button type="submit" class="btn btn-yellow">Finish</button>
+                </form>
+            {% else %}
+                <button type="button" class="btn btn-yellow" disabled>Finish</button>
+            {% endif %}
+        </div>
+    </section>
+</div>
+
+
+<div class="processing-feedback-overlay" id="processingOverlay" aria-hidden="true">
+    <div class="processing-feedback-card" role="status" aria-live="assertive">
+        <h2>Generating results...</h2>
+        <div class="processing-progress-shell" aria-hidden="true">
+            <div class="processing-progress-bar"></div>
+        </div>
+        <p>Preparing demand and stock risk insights. Please do not close this page.</p>
+    </div>
+</div>
+
+{% endblock %}

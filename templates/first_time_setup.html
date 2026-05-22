@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="setup-page-shell">
+    <div class="setup-card card">
+        <div class="setup-step-panel setup-step-{{ setup_step }}" data-setup-step="{{ setup_step }}">
+        {% if setup_step == 'upload_prompt' %}
+            <div class="setup-hero setup-hero-highlight">
+                <div class="setup-title-row">
+                    <h1 class="page-title setup-title">Upload Sales Data</h1>
+                    <span class="setup-tooltip" tabindex="0" role="button" aria-label="Upload at least 6 to 12 months of sales records for better forecasts." data-tooltip="Upload at least 6 to 12 months of sales records for better forecasts.">?</span>
+                </div>
+            </div>
+
+            <div class="setup-first-upload-card">
+                <form method="POST" action="{{ url_for('upload_data') }}" enctype="multipart/form-data" class="setup-upload-dropzone" data-onboarding-upload-form>
+                    <input type="hidden" name="action" value="select">
+                    <input type="hidden" name="upload_mode" value="new">
+                    <input type="hidden" name="onboarding_upload" value="1">
+                    <div class="setup-upload-dropzone-copy">
+                        <strong>Drag and drop your sales record here</strong>
+                        <span class="setup-upload-or">or</span>
+                    </div>
+                    <label for="firstSetupSalesFile" class="btn btn-yellow cursor-pointer">Choose File</label>
+                    <p class="setup-accepted-format">Accepted file format: CSV, XLSX, or XLS</p>
+                    <input type="file" id="firstSetupSalesFile" name="file" accept=".csv,.xlsx,.xls" hidden data-onboarding-upload-input>
+                </form>
+            </div>
+
+            <div class="setup-actions setup-actions-split">
+                <a href="{{ url_for('first_time_setup', step='store') }}" class="btn btn-outline">Back</a>
+                <form method="POST" action="{{ url_for('first_time_setup') }}" class="setup-inline-actions">
+                    <button type="submit" name="action" value="upload_later" class="btn btn-outline">I’ll upload later</button>
+                    <button type="submit" name="action" value="upload_now" class="btn btn-yellow">Open Upload Sales Data</button>
+                </form>
+            </div>
+        {% elif setup_step == 'store' %}
+            <div class="setup-hero setup-hero-highlight">
+                <h1 class="page-title setup-title">Store Information</h1>
+            </div>
+
+            {% if setup_message %}
+                <div class="status-alert status-{{ setup_message_type }} mb-4">{{ setup_message }}</div>
+            {% endif %}
+
+            <form method="POST" action="{{ url_for('first_time_setup') }}" class="setup-form" enctype="multipart/form-data" data-onboarding-form novalidate>
+                <input type="hidden" name="action" value="save_store_setup">
+
+                <div class="setup-logo-question">
+                    <label class="control-label block">Does your store have a logo?</label>
+                </div>
+
+                <div class="setup-logo-choice" data-logo-choice>
+                    <label class="setup-radio-card">
+                        <input type="radio" name="has_store_logo" value="yes" {% if form_values.has_store_logo == 'yes' %}checked{% endif %}>
+                        <span>Yes, I have a logo</span>
+                    </label>
+                    <label class="setup-radio-card">
+                        <input type="radio" name="has_store_logo" value="no" {% if form_values.has_store_logo == 'no' %}checked{% endif %}>
+                        <span>No, skip for now</span>
+                    </label>
+                </div>
+
+                <div class="setup-centered-image-field setup-logo-upload-card {% if form_values.has_store_logo == 'yes' %}is-visible{% endif %}" data-logo-upload-panel aria-hidden="{{ 'false' if form_values.has_store_logo == 'yes' else 'true' }}">
+                    <label class="control-label block" for="setupStoreLogo">Store Logo</label>
+                    <label for="setupStoreLogo" class="setup-image-picker setup-logo-picker" aria-label="Upload store logo">
+                        <img src="{{ url_for('static', filename=form_values.store_logo) if form_values.store_logo else url_for('static', filename='images/stockwise_logo.png') }}" alt="Store logo preview" class="image-preview image-preview-logo" data-image-preview-target="storeLogoPreview" onerror="this.src='{{ url_for('static', filename='images/stockwise_logo.png') }}'">
+                        <span class="setup-edit-icon" aria-hidden="true"></span>
+                    </label>
+                    <input type="file" id="setupStoreLogo" name="store_logo" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" hidden data-image-preview-input data-preview-target="storeLogoPreview">
+                    <p class="settings-help-text">Supported files: PNG, JPG, GIF, or WEBP.</p>
+                </div>
+
+                <div class="settings-field-grid setup-field-grid">
+                    <div class="form-group">
+                        <label class="control-label block" for="setupStoreName">Store Name</label>
+                        <input type="text" class="form-input w-100" id="setupStoreName" name="store_name" value="{{ form_values.store_name }}" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="control-label block" for="setupStoreType">Store Type</label>
+                        <select class="form-select w-100" id="setupStoreType" name="store_type" required>
+                            <option value="" {% if not form_values.store_type %}selected{% endif %} disabled>Select store type</option>
+                            {% for option in store_type_options %}
+                                <option value="{{ option }}" {% if form_values.store_type == option %}selected{% endif %}>{{ option }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="control-label block" for="setupLocationArea">Location / Area</label>
+                        <input type="text" class="form-input w-100" id="setupLocationArea" name="location_area" value="{{ form_values.location_area }}" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="control-label block" for="setupCurrency">Currency</label>
+                        <select class="form-select w-100" id="setupCurrency" name="currency" required>
+                            {% for option in currency_options %}
+                                <option value="{{ option.key }}" {% if form_values.currency == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <p class="setup-helper-note">You can update these details anytime in Settings under Store Information.</p>
+
+                <div class="setup-actions setup-actions-split">
+                    <a href="{{ url_for('first_time_setup', step='personal') }}" class="btn btn-outline">Back</a>
+                    <button type="submit" class="btn btn-yellow">Continue</button>
+                </div>
+            </form>
+        {% else %}
+            <div class="setup-hero setup-hero-highlight">
+                <h1 class="page-title setup-title">Personal Information</h1>
+            </div>
+
+            {% if setup_message %}
+                <div class="status-alert status-{{ setup_message_type }} mb-4">{{ setup_message }}</div>
+            {% endif %}
+
+            <form method="POST" action="{{ url_for('first_time_setup') }}" class="setup-form" enctype="multipart/form-data" data-onboarding-form novalidate>
+                <input type="hidden" name="action" value="save_personal_setup">
+
+                <div class="setup-centered-image-field setup-profile-block">
+                    <label class="control-label block" for="setupProfileImage">Profile Image</label>
+                    <label for="setupProfileImage" class="setup-image-picker setup-profile-picker" aria-label="Upload profile image">
+                        <img src="{{ url_for('static', filename=form_values.profile_image) if form_values.profile_image else url_for('static', filename='images/profile.png') }}" alt="Profile preview" class="image-preview setup-profile-preview" data-image-preview-target="profilePreview" onerror="this.src='{{ url_for('static', filename='images/profile.png') }}'">
+                        <span class="setup-edit-icon" aria-hidden="true"></span>
+                    </label>
+                    <input type="file" id="setupProfileImage" name="profile_image" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" hidden data-image-preview-input data-preview-target="profilePreview">
+                </div>
+
+                <div class="settings-field-grid setup-field-grid">
+                    <div class="form-group">
+                        <label class="control-label block" for="setupFullName">Full Name</label>
+                        <input type="text" class="form-input w-100" id="setupFullName" name="display_name" value="{{ form_values.display_name }}" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="control-label block" for="setupUserRole">Role</label>
+                        <input type="text" class="form-input w-100" id="setupUserRole" value="Owner" readonly>
+                        <input type="hidden" name="user_role" value="Owner">
+                    </div>
+                </div>
+
+                <div class="setup-actions setup-actions-right">
+                    <button type="submit" class="btn btn-yellow">Continue</button>
+                </div>
+            </form>
+        {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

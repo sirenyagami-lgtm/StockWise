@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header page-header-with-action activity-logs-page-header">
+    <div class="page-header-main">
+        <h1 class="page-title">Activity Logs</h1>
+    </div>
+    <div class="page-header-actions">
+        <a href="{{ url_for('settings') }}#activity-logs" class="btn btn-outline" data-app-link="true">Back to Settings</a>
+    </div>
+</div>
+
+<div class="card activity-filter-card mb-4">
+    <form method="GET" action="{{ url_for('activity_logs') }}" class="activity-filter-form" id="activityFilterForm">
+        <input type="hidden" name="employee_id" value="{{ activity_filters.employee_id }}" data-user-filter-value>
+        <input type="hidden" name="user" value="{{ activity_filters.user }}" data-user-filter-name>
+        <div class="settings-field-grid activity-filter-grid">
+            <div class="form-group">
+                <label class="control-label block" id="activityUserFilterLabel">User</label>
+                <div class="activity-user-filter" data-user-filter aria-labelledby="activityUserFilterLabel">
+                    <button type="button"
+                            class="form-select activity-user-filter-trigger"
+                            data-user-filter-trigger
+                            aria-haspopup="true"
+                            aria-expanded="false">
+                        <span data-user-filter-label>{{ activity_filters.user_label or 'All users' }}</span>
+                    </button>
+                    <div class="activity-user-filter-menu" data-user-filter-menu hidden>
+                        <button type="button"
+                                class="activity-user-filter-option"
+                                data-user-option
+                                data-user-id=""
+                                data-user-name="">
+                            All users
+                        </button>
+                        {% for group in activity_filter_options.user_groups %}
+                            <div class="activity-user-filter-group" data-user-filter-group>
+                                <button type="button" class="activity-user-filter-group-button" aria-expanded="false">
+                                    <span>{{ group.label }}</span>
+                                    <span class="activity-user-filter-subarrow" aria-hidden="true"></span>
+                                </button>
+                                <div class="activity-user-filter-submenu" hidden>
+                                    {% if group.users %}
+                                        {% for user in group.users %}
+                                            <button type="button"
+                                                    class="activity-user-filter-option"
+                                                    data-user-option
+                                                    data-user-id="{{ user.user_id }}"
+                                                    data-user-name="{{ user.name }}">
+                                                {{ user.name }}
+                                            </button>
+                                        {% endfor %}
+                                    {% else %}
+                                        <span class="activity-user-filter-empty">No users</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="control-label block" for="activityRoleFilter">Role</label>
+                <select class="form-select w-100" id="activityRoleFilter" name="role">
+                    <option value="">All roles</option>
+                    {% for option in activity_filter_options.roles %}
+                        <option value="{{ option }}" {% if activity_filters.role == option %}selected{% endif %}>{{ option }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="control-label block" for="activityModuleFilter">Area</label>
+                <select class="form-select w-100" id="activityModuleFilter" name="module">
+                    <option value="">All areas</option>
+                    {% for option in activity_filter_options.modules %}
+                        <option value="{{ option }}" {% if activity_filters.module == option %}selected{% endif %}>{{ activity_label_options.modules.get(option, option) }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="control-label block" for="activityActionFilter">Action</label>
+                <select class="form-select w-100" id="activityActionFilter" name="action">
+                    <option value="">All actions</option>
+                    {% for option in activity_filter_options.actions %}
+                        <option value="{{ option }}" {% if activity_filters.action == option %}selected{% endif %}>{{ activity_label_options.actions.get(option, option) }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="control-label block" for="activityStatusFilter">Result</label>
+                <select class="form-select w-100" id="activityStatusFilter" name="status">
+                    <option value="">All results</option>
+                    {% for option in activity_filter_options.statuses %}
+                        <option value="{{ option }}" {% if activity_filters.status == option %}selected{% endif %}>{{ activity_label_options.statuses.get(option, option) }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="control-label block" for="activityDateRangeFilter">Date Range</label>
+                <select class="form-select w-100" id="activityDateRangeFilter" name="date_range" data-date-range-select>
+                    <option value="all" {% if activity_filters.date_range == 'all' %}selected{% endif %}>All time</option>
+                    <option value="today" {% if activity_filters.date_range == 'today' %}selected{% endif %}>Today</option>
+                    <option value="last_7_days" {% if activity_filters.date_range == 'last_7_days' %}selected{% endif %}>Last 7 days</option>
+                    <option value="last_30_days" {% if activity_filters.date_range == 'last_30_days' %}selected{% endif %}>Last 30 days</option>
+                    <option value="this_month" {% if activity_filters.date_range == 'this_month' %}selected{% endif %}>This month</option>
+                    <option value="custom" {% if activity_filters.date_range == 'custom' %}selected{% endif %}>{{ activity_filters.date_range_label or 'Custom range' }}</option>
+                </select>
+            </div>
+            <div class="activity-date-modal-backdrop" data-custom-date-modal hidden aria-hidden="true">
+                <div class="activity-date-modal" role="dialog" aria-modal="true" aria-labelledby="activityDateModalTitle">
+                    <div class="activity-date-modal-header">
+                        <h3 id="activityDateModalTitle">Choose Custom Date Range</h3>
+                        <button type="button" class="modal-close-button" data-custom-date-cancel aria-label="Close custom date range">×</button>
+                    </div>
+                    <div class="activity-date-modal-body">
+                        <div class="form-group">
+                            <label class="control-label block" for="activityDateFrom">From</label>
+                            <input type="date" class="form-input w-100" id="activityDateFrom" name="date_from" form="activityFilterForm" value="{{ activity_filters.date_from }}">
+                        </div>
+                        <div class="form-group">
+                            <label class="control-label block" for="activityDateTo">To</label>
+                            <input type="date" class="form-input w-100" id="activityDateTo" name="date_to" form="activityFilterForm" value="{{ activity_filters.date_to }}">
+                        </div>
+                    </div>
+                    <div class="activity-date-modal-actions">
+                        <button type="button" class="btn btn-outline" data-custom-date-cancel>Cancel</button>
+                        <button type="button" class="btn btn-yellow" data-custom-date-apply>Apply Custom Range</button>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group activity-filter-actions">
+                <div class="activity-filter-button-row">
+                    <a href="{{ url_for('activity_logs') }}" class="btn btn-outline" data-app-link="true">Reset</a>
+                    <button type="submit" class="btn btn-yellow">Apply Filters</button>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card activity-log-card">
+    <div class="section-title-row"><h3 class="card-title">Store Activity</h3></div>
+    {% if activity_logs %}
+        <div class="table-responsive activity-log-table-shell mt-3">
+            <table class="data-table activity-log-table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Role</th>
+                        <th>Action</th>
+                        <th>Area</th>
+                        <th>Result</th>
+                        <th>Date and Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in activity_logs %}
+                        <tr>
+                            <td>{{ log.user_name }}</td>
+                            <td>{{ log.user_role }}</td>
+                            <td>{{ log.action_display or log.action }}</td>
+                            <td>{{ log.module_display or log.module }}</td>
+                            <td><span class="status-pill {% if (log.status_display or log.status) == 'Success' %}status-active{% elif log.status == 'Blocked' %}status-inactive{% else %}status-neutral{% endif %}">{{ log.status_display or log.status }}</span></td>
+                            <td>{{ log.created_label }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% else %}
+        <div class="empty-state-panel compact-empty-panel activity-empty-panel mt-3"><div class="empty-state-text">No activity logs match the selected filters.</div></div>
+    {% endif %}
+</div>
+{% endblock %}

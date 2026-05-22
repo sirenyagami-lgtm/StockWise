@@ -1,0 +1,396 @@
+{% extends "base.html" %}
+
+{% macro section_header(title, tooltip, panel_id) %}
+<button type="button" class="settings-accordion-trigger" data-settings-accordion-trigger aria-expanded="false" aria-controls="{{ panel_id }}">
+    <span class="settings-accordion-title-wrap">
+        <span class="settings-title-line">
+            <span class="settings-accordion-title">{{ title }}</span>
+            {% if tooltip %}
+                <span class="settings-info-tip" tabindex="0" data-tooltip="{{ tooltip }}" aria-label="{{ title }} help">?</span>
+            {% endif %}
+        </span>
+    </span>
+    <span class="settings-accordion-arrow" aria-hidden="true"></span>
+</button>
+{% endmacro %}
+
+{% macro edit_actions(section_key, edit_label='Edit') %}
+<div class="settings-section-actions" data-settings-section-actions>
+    <button type="button" class="btn btn-outline settings-edit-button" data-settings-edit>{{ edit_label }}</button>
+    <div class="settings-edit-actions" hidden>
+        <button type="submit" class="btn btn-yellow settings-section-save" name="settings_section" value="{{ section_key }}" data-settings-save>Save</button>
+        <button type="button" class="btn btn-outline settings-cancel-button" data-settings-cancel>Cancel</button>
+    </div>
+</div>
+{% endmacro %}
+
+{% macro image_upload_block(kind, preview_src, fallback_src, input_id, input_name, preview_key, label_text, helper_text) %}
+<div class="settings-image-upload settings-image-upload-{{ kind }}">
+    <div class="settings-image-preview-wrap">
+        <img src="{{ preview_src }}" alt="{{ label_text }} preview" class="settings-upload-preview {% if kind == 'profile' %}settings-upload-preview-profile{% else %}settings-upload-preview-logo{% endif %}" data-image-preview-target="{{ preview_key }}" onerror="this.src='{{ fallback_src }}'">
+        <label for="{{ input_id }}" class="settings-camera-button" aria-label="Change {{ label_text|lower }}">
+            <img src="{{ url_for('static', filename='images/camera.png') }}" alt="" onerror="this.style.display='none'">
+        </label>
+        <input type="file" class="settings-hidden-file-input" id="{{ input_id }}" name="{{ input_name }}" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" data-section-field data-image-preview-input data-preview-target="{{ preview_key }}" disabled>
+    </div>
+    {% if helper_text %}<p class="settings-help-text">{{ helper_text }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+{% block content %}
+{% if settings_message %}
+<div class="settings-toast-layer" aria-live="polite">
+    <div id="settingsServerToast"
+         class="settings-toast status-alert status-{{ settings_message_type }}"
+         data-auto-dismiss-toast>
+        {{ settings_message }}
+    </div>
+</div>
+{% endif %}
+
+<div class="page-header settings-page-header">
+    <h1 class="page-title">Settings</h1>
+</div>
+
+<form method="POST" action="{{ url_for('settings') }}" class="settings-form-shell settings-accordion-form" id="settingsForm" enctype="multipart/form-data" novalidate>
+    <div class="settings-accordion-layout" id="settingsAccordion">
+        <section class="card settings-section-card settings-accordion-item" data-settings-accordion-item data-settings-section-key="profile-account">
+            {{ section_header('Profile & Account', '', 'settingsPanelProfile') }}
+            <div class="settings-accordion-panel" id="settingsPanelProfile" data-settings-accordion-panel hidden>
+                <div class="settings-profile-card-clean">
+                    {{ image_upload_block(
+                        'profile',
+                        url_for('static', filename=settings_preferences.profile_image) if settings_preferences.profile_image else url_for('static', filename='images/profile.png'),
+                        url_for('static', filename='images/profile.png'),
+                        'settingsProfileImageInput',
+                        'profile_image',
+                        'settingsProfilePreview',
+                        'Profile Image',
+                        ''
+                    ) }}
+                    <div class="settings-profile-copy">
+                        <h3>{{ current_user.name if current_user else 'User' }}</h3>
+                        <p>{{ current_user.email if current_user and current_user.email else settings_preferences.email }}</p>
+                        <div class="settings-badge-row">
+                            <span class="settings-role-badge">{{ current_role if current_role else settings_preferences.role }}</span>
+                            <span class="settings-status-badge">Active account</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-editable-fields settings-profile-edit-fields">
+                    <div class="settings-field-grid">
+                        <div class="form-group">
+                            <label class="control-label block" for="displayNameInput">Display Name</label>
+                            <input type="text" class="form-input w-100" id="displayNameInput" name="display_name" autocomplete="name" value="{{ settings_preferences.display_name }}" required data-section-field disabled>
+                        </div>
+                        <div class="form-group">
+                            <label class="control-label block" for="settingsEmailInput">Email Address</label>
+                            <input type="email" class="form-input w-100" id="settingsEmailInput" name="email" autocomplete="email" value="{{ settings_preferences.email }}" required data-section-field disabled>
+                        </div>
+                    </div>
+                </div>
+                {{ edit_actions('profile') }}
+            </div>
+        </section>
+
+        {% if 'store' in settings_allowed_sections %}
+        <section class="card settings-section-card settings-accordion-item" data-settings-accordion-item data-settings-section-key="store-information">
+            {{ section_header('Store Information', '', 'settingsPanelStore') }}
+            <div class="settings-accordion-panel" id="settingsPanelStore" data-settings-accordion-panel hidden>
+                <div class="settings-store-profile-row">
+                    {{ image_upload_block(
+                        'logo',
+                        url_for('static', filename=settings_preferences.store_logo) if settings_preferences.store_logo else url_for('static', filename='images/stockwise_logo.png'),
+                        url_for('static', filename='images/stockwise_logo.png'),
+                        'settingsStoreLogoInput',
+                        'store_logo',
+                        'settingsStoreLogoPreview',
+                        'Store Logo',
+                        ''
+                    ) }}
+                    {% set selected_currency = namespace(label=settings_preferences.currency) %}
+                    {% for option in currency_options %}
+                        {% if settings_preferences.currency == option.key %}
+                            {% set selected_currency.label = option.label %}
+                        {% endif %}
+                    {% endfor %}
+                    <div class="settings-store-copy">
+                        <h3>{{ settings_preferences.store_name or 'Store workspace' }}</h3>
+                        <p>{{ settings_preferences.store_type or 'Store type not set' }}</p>
+                        <div class="settings-badge-row">
+                            <span class="settings-neutral-badge">{{ settings_preferences.location_area or 'Location not set' }}</span>
+                            <span class="settings-neutral-badge">{{ selected_currency.label }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-editable-fields settings-store-edit-fields">
+                    <div class="settings-field-grid">
+                        <div class="form-group">
+                            <label class="control-label block" for="storeNameInput">Store Name</label>
+                            <input type="text" class="form-input w-100" id="storeNameInput" name="store_name" value="{{ settings_preferences.store_name }}" data-section-field disabled>
+                        </div>
+                        <div class="form-group">
+                            <label class="control-label block" for="storeTypeSelect">Store Type</label>
+                            <select class="form-select w-100" id="storeTypeSelect" name="store_type" data-section-field disabled>
+                                {% for option in store_type_options %}
+                                    <option value="{{ option }}" {% if settings_preferences.store_type == option %}selected{% endif %}>{{ option }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="control-label block" for="locationAreaInput">Location / Area</label>
+                            <input type="text" class="form-input w-100" id="locationAreaInput" name="location_area" value="{{ settings_preferences.location_area }}" data-section-field disabled>
+                        </div>
+                        <div class="form-group">
+                            <label class="control-label block" for="currencySelect">Currency</label>
+                            <select class="form-select w-100" id="currencySelect" name="currency" data-section-field disabled>
+                                {% for option in currency_options %}
+                                    <option value="{{ option.key }}" {% if settings_preferences.currency == option.key %}selected{% endif %}>{{ option.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                {{ edit_actions('store') }}
+            </div>
+        </section>
+        {% endif %}
+
+        {% if is_owner_account %}
+        <section class="card settings-section-card settings-accordion-item" data-settings-accordion-item data-settings-section-key="team-access">
+            {{ section_header('Team & Access', 'Manage who can access this store workspace.', 'settingsPanelTeam') }}
+            <div class="settings-accordion-panel" id="settingsPanelTeam" data-settings-accordion-panel hidden>
+                <p class="settings-section-description">Manage who can access this store workspace.</p>
+                <div class="settings-summary-grid">
+                    <div class="settings-summary-card"><span>Active employees</span><strong>{{ employee_summary.active }}</strong></div>
+                    <div class="settings-summary-card"><span>Deactivated</span><strong>{{ employee_summary.deactivated }}</strong></div>
+                    <div class="settings-summary-card"><span>Pending setup</span><strong>{{ employee_summary.pending }}</strong></div>
+                </div>
+                <div class="settings-management-actions">
+                    <a href="{{ url_for('team_access') }}#add-employee" class="btn btn-yellow" data-app-link="true">Add Employee</a>
+                    <a href="{{ url_for('team_access') }}" class="btn btn-outline" data-app-link="true">Manage Team</a>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if 'data_format' in settings_allowed_sections or 'upload' in settings_allowed_sections %}
+        <section class="card settings-section-card settings-accordion-item" data-settings-accordion-item data-settings-section-key="sales-file-setup">
+            {{ section_header('Sales File Setup', 'Set how StockWise reads your uploaded sales files.', 'settingsPanelSalesFile') }}
+            <div class="settings-accordion-panel" id="settingsPanelSalesFile" data-settings-accordion-panel hidden>
+                <div class="settings-format-template-card">
+                    <div>
+                        <h4>Sales File Template</h4>
+                        <p>Download the recommended column headers for StockWise sales uploads.</p>
+                    </div>
+                    <a href="{{ standard_template_url }}" class="btn btn-yellow settings-file-template-button" download>Download Sales File Template</a>
+                </div>
+
+                <div class="settings-field-grid mt-4">
+                    <div class="form-group">
+                        <label class="control-label block" for="dataDateFormatSelect">Date Format Used in File</label>
+                        <select class="form-select w-100" id="dataDateFormatSelect" name="data_date_format" data-section-field disabled>
+                            {% for option in data_date_format_options %}
+                                <option value="{{ option.key }}" {% if settings_preferences.data_date_format == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label block" for="dataTimeFormatSelect">Time Format Used in File</label>
+                        <select class="form-select w-100" id="dataTimeFormatSelect" name="data_time_format" data-section-field disabled>
+                            {% for option in data_time_format_options %}
+                                <option value="{{ option.key }}" {% if settings_preferences.data_time_format == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label block" for="paydayHandlingSelect">Payday Period Column</label>
+                        <select class="form-select w-100" id="paydayHandlingSelect" name="payday_indicator_handling" data-section-field disabled>
+                            {% for option in payday_handling_options %}
+                                <option value="{{ option.key }}" {% if settings_preferences.payday_indicator_handling == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label block" for="duplicateHandlingSelect">Duplicate Records</label>
+                        <select class="form-select w-100" id="duplicateHandlingSelect" name="duplicate_handling" data-section-field disabled>
+                            {% for option in duplicate_handling_options %}
+                                <option value="{{ option.key }}" {% if settings_preferences.duplicate_handling == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="settings-column-map mt-4">
+                    <div class="settings-section-inline-header">
+                        <div>
+                            <h4>Match File Columns</h4>
+                            <p class="settings-help-text">Match your file's column names with the fields StockWise expects.</p>
+                        </div>
+                    </div>
+                    <div class="settings-field-grid">
+                        {% for field in column_mapping_fields %}
+                            <div class="form-group">
+                                <label class="control-label block" for="columnMap{{ field.key|replace('_', '') }}">{{ field.label }}</label>
+                                <input type="text" class="form-input w-100" id="columnMap{{ field.key|replace('_', '') }}" name="column_map_{{ field.key }}" value="{{ settings_preferences.column_mapping_display.get(field.key, field.default_column) }}" data-section-field disabled>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% if 'data_format' in settings_allowed_sections %}
+                    {{ edit_actions('data_format') }}
+                {% else %}
+                    <p class="settings-view-only-note">Your role can view this setup but cannot change store-wide sales file rules.</p>
+                {% endif %}
+            </div>
+        </section>
+        {% endif %}
+
+        {% if 'upload' in settings_allowed_sections or 'reports' in settings_allowed_sections %}
+        <section class="card settings-section-card settings-accordion-item" data-settings-accordion-item data-settings-section-key="reports-display">
+            {{ section_header('Reports & Display', '', 'settingsPanelReportsDisplay') }}
+            <div class="settings-accordion-panel" id="settingsPanelReportsDisplay" data-settings-accordion-panel hidden>
+                <p class="settings-section-description">Choose useful defaults for forecast views, reports, and dashboard display.</p>
+                <div class="settings-field-grid">
+                    <div class="form-group">
+                        <label class="control-label block" for="defaultTimeRangeSelect">Default Forecast View</label>
+                        <select class="form-select w-100" id="defaultTimeRangeSelect" name="default_time_range" data-section-field disabled>
+                            {% for option in forecast_range_options %}
+                                <option value="{{ option.key }}" {% if settings_preferences.default_time_range == option.key or settings_preferences.default_forecast_range == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label block" for="defaultReportTypeSelect">Default Report Type</label>
+                        <select class="form-select w-100" id="defaultReportTypeSelect" name="default_report_type" data-section-field disabled>
+                            {% for option in report_type_options %}
+                                <option value="{{ option.key }}" {% if settings_preferences.default_report_type == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label block" for="defaultReportPeriodSelect">Default Report Date Range</label>
+                        <select class="form-select w-100" id="defaultReportPeriodSelect" name="default_report_period" data-section-field disabled>
+                            {% for option in report_period_options %}
+                                <option value="{{ option.key }}" {% if settings_preferences.default_report_period == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label block" for="showSafeProductsSelect">Show Safe Products in Dashboard</label>
+                        <select class="form-select w-100" id="showSafeProductsSelect" name="show_safe_products_dashboard" data-section-field disabled>
+                            {% for option in yes_no_options %}
+                                <option value="{{ option.key }}" {% if settings_preferences.show_safe_products_dashboard == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label block" for="filteredRowsSelect">Include Filtered Items Only</label>
+                        <select class="form-select w-100" id="filteredRowsSelect" name="include_filtered_rows_only" data-section-field disabled>
+                            {% for option in yes_no_options %}
+                                <option value="{{ option.key }}" {% if settings_preferences.include_filtered_rows_only == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group settings-deemphasized-field">
+                        <label class="control-label block" for="defaultUploadModeSelect">Default Upload Choice</label>
+                        <select class="form-select w-100" id="defaultUploadModeSelect" name="default_upload_mode" data-section-field disabled>
+                            {% for option in upload_mode_options %}
+                                <option value="{{ option.key }}" {% if settings_preferences.default_upload_mode == option.key %}selected{% endif %}>{{ option.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                {{ edit_actions('reports_display') }}
+            </div>
+        </section>
+        {% endif %}
+
+        {% if is_owner_account %}
+        <section class="card settings-section-card settings-accordion-item" data-settings-accordion-item data-settings-section-key="data-management">
+            {{ section_header('Data Management', 'Review or reset processed sales data used by Dashboard, Insights, Products, and Reports.', 'settingsPanelDataManagement') }}
+            <div class="settings-accordion-panel" id="settingsPanelDataManagement" data-settings-accordion-panel hidden>
+                <p class="settings-section-description">Review the processed sales data currently used by StockWise.</p>
+                <div class="settings-summary-grid settings-data-summary-grid">
+                    <div class="settings-summary-card"><span>Latest dataset</span><strong>{{ data_management_summary.latest_dataset }}</strong></div>
+                    <div class="settings-summary-card"><span>Sales records</span><strong>{{ data_management_summary.sales_records }}</strong></div>
+                    <div class="settings-summary-card"><span>Products detected</span><strong>{{ data_management_summary.products_detected }}</strong></div>
+                    <div class="settings-summary-card"><span>Date coverage</span><strong>{{ data_management_summary.date_coverage }}</strong></div>
+                </div>
+                <div class="settings-management-actions">
+                    <a href="{{ url_for('data_management') }}" class="btn btn-outline" data-app-link="true">Open Data Management</a>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if is_owner_account %}
+        <section class="card settings-section-card settings-accordion-item" data-settings-accordion-item data-settings-section-key="activity-logs">
+            {{ section_header('Activity Logs', 'Review important account and data actions in your store workspace.', 'settingsPanelActivity') }}
+            <div class="settings-accordion-panel" id="settingsPanelActivity" data-settings-accordion-panel hidden>
+                <div class="settings-section-inline-header">
+                    <p class="settings-help-text">Showing the 5 latest store activities.</p>
+                    <a href="{{ url_for('activity_logs') }}" class="settings-view-link" data-app-link="true">View All Activity</a>
+                </div>
+                {% if activity_logs %}
+                    <div class="settings-log-list">
+                        {% for log in activity_logs[:5] %}
+                            <div class="settings-log-item">
+                                <div>
+                                    <strong>{{ log.action_display or log.action }}</strong>
+                                    <p>{{ log.user_name }}{% if log.user_role %} · {{ log.user_role }}{% endif %} · {{ log.module_display or log.module }}</p>
+                                </div>
+                                <div class="settings-log-meta">
+                                    <span>{{ log.status_display or log.status }}</span>
+                                    <small>{{ log.created_label }}</small>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state-panel compact-empty-panel clear-border settings-empty-panel mt-2">
+                        <div class="empty-state-text">No activity logs yet.</div>
+                    </div>
+                {% endif %}
+            </div>
+        </section>
+        {% endif %}
+
+        <section class="card settings-section-card settings-accordion-item" data-settings-accordion-item data-settings-section-key="password-security">
+            {{ section_header('Password & Security', '', 'settingsPanelSecurity') }}
+            <div class="settings-accordion-panel" id="settingsPanelSecurity" data-settings-accordion-panel hidden>
+                <div class="settings-field-grid settings-password-field-grid">
+                    <div class="form-group">
+                        <label class="control-label block" for="currentPasswordInput">Current Password</label>
+                        <div class="password-container settings-password-container">
+                            <input type="password" class="form-input w-100" id="currentPasswordInput" name="current_password" autocomplete="current-password" data-section-field disabled>
+                            <i class="fa-regular fa-eye toggle-password hidden" aria-hidden="true" title="Toggle password visibility"></i>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label block" for="newPasswordInput">New Password</label>
+                        <div class="password-container settings-password-container">
+                            <input type="password" class="form-input w-100" id="newPasswordInput" name="new_password" autocomplete="new-password" minlength="8" data-section-field disabled>
+                            <i class="fa-regular fa-eye toggle-password hidden" aria-hidden="true" title="Toggle password visibility"></i>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="control-label block" for="confirmPasswordInput">Confirm New Password</label>
+                        <div class="password-container settings-password-container">
+                            <input type="password" class="form-input w-100" id="confirmPasswordInput" name="confirm_password" autocomplete="new-password" minlength="8" data-section-field disabled>
+                            <i class="fa-regular fa-eye toggle-password hidden" aria-hidden="true" title="Toggle password visibility"></i>
+                        </div>
+                    </div>
+                </div>
+                {{ edit_actions('security', 'Change Password') }}
+            </div>
+        </section>
+    </div>
+</form>
+
+<div class="settings-logout-area">
+    <a href="{{ url_for('logout') }}" class="btn btn-outline settings-logout-button" data-confirm-logout="true">Log Out</a>
+</div>
+{% endblock %}

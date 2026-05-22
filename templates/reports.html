@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header reports-page-header">
+    <div>
+        <h1 class="page-title">Reports</h1>
+    </div>
+</div>
+
+<div class="report-toolbar mb-4">
+    <div class="report-filter-summary">
+        {{ report_context.filter_summary or 'Report view: Latest generated results · Last 30 Days · All categories · All stockout risks · All products' }}
+    </div>
+    <div class="report-page-actions">
+        <button type="button" class="btn btn-yellow" id="openReportFilterDrawer" {% if not report_context.has_processed_data %}disabled title="Upload sales data first." aria-disabled="true"{% endif %}>Filter Report</button>
+        <button type="button" class="btn btn-outline" id="btnExportReport" {% if not report_rows %}disabled{% endif %}>Export</button>
+    </div>
+</div>
+
+<div class="grid-row three-cols mb-4 report-summary-row">
+    <div class="card stat-card row-layout report-summary-card report-summary-sales">
+        <div class="stat-icon-large success-bg">
+            <img src="{{ url_for('static', filename='images/money.png') }}" alt="">
+        </div>
+        <div>
+            <div class="stat-label">Total Sales Volume</div>
+            <div class="stat-value empty-value">
+                {% if report_rows %}
+                    ₱{{ "{:,.2f}".format(report_context.summary.total_sales_volume) }}
+                {% else %}
+                    No report data yet
+                {% endif %}
+            </div>
+            <div class="stat-meta">{{ report_context.period_label }}</div>
+        </div>
+    </div>
+
+    <div class="card stat-card row-layout report-summary-card report-summary-product">
+        <div class="stat-icon-large warning-bg">
+            <img src="{{ url_for('static', filename='images/cart.png') }}" alt="">
+        </div>
+        <div>
+            <div class="stat-label">Most Sold Product</div>
+            <div class="stat-value empty-value">
+                {% if report_rows %}
+                    {{ report_context.summary.most_sold_product }}
+                {% else %}
+                    No report data yet
+                {% endif %}
+            </div>
+            <div class="stat-meta">{{ report_context.period_label }}</div>
+        </div>
+    </div>
+
+    <div class="card stat-card row-layout report-summary-card report-summary-risk">
+        <div class="stat-icon-large danger-bg">
+            <img src="{{ url_for('static', filename='images/warning.png') }}" alt="">
+        </div>
+        <div>
+            <div class="stat-label">Highest Risk Product</div>
+            <div class="stat-value empty-value">
+                {% if report_rows %}
+                    {{ report_context.summary.highest_risk_product }}
+                {% else %}
+                    No report data yet
+                {% endif %}
+            </div>
+            <div class="stat-meta">{{ report_context.period_label }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="table-header-flex">
+        <div>
+            <h3 class="card-title mb-0">Report Overview</h3>
+        </div>
+    </div>
+
+    {% if report_context.chart.chart_labels %}
+        <div class="chart-box mt-3 chart-box-short report-chart-shell">
+            <div class="chart-container report-chart-container">
+                <canvas id="reportOverviewChart"
+                    data-chart-type="{{ report_context.chart.chart_type }}"
+                    data-chart-options='{{ report_context.chart.chart_options|tojson }}'
+                    data-chart-labels='{{ report_context.chart.chart_labels|tojson }}'
+                    data-chart-datasets='{{ report_context.chart.chart_datasets|tojson }}'></canvas>
+            </div>
+        </div>
+    {% else %}
+        <div class="empty-state-panel page-empty-panel mt-3">
+            <div class="empty-state-text">{{ report_context.chart.chart_message or 'No chart data available yet.' }}</div>
+        </div>
+    {% endif %}
+</div>
+
+<div class="card" id="reportPrintSection">
+    <div class="table-header-flex">
+        <div>
+            <h3 class="card-title mb-0">Detailed Report Table</h3>
+        </div>
+        <div class="report-inline-search">
+            <input type="text" class="form-input search-input search-wide" id="reportSearch" placeholder="Search visible report rows..." {% if not report_rows %}disabled{% endif %}>
+        </div>
+    </div>
+
+    {% if report_rows %}
+        <div class="table-responsive table-scroll-shell report-table-scroll mt-3">
+            <table class="data-table filterable-table" id="reportTable" data-empty-target="reportFilterEmpty">
+                <thead>
+                    <tr>
+                        <th>Product Name</th>
+                        <th>Total Sales Volume</th>
+                        <th>Average Daily Demand</th>
+                        <th>Predicted Demand</th>
+                        <th>Latest Recorded Stock</th>
+                        <th>Stockout Risk</th>
+                        <th>Suggested Decision</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in report_rows %}
+                        <tr>
+                            <td>{{ row.product_name }}</td>
+                            <td>₱{{ "{:,.2f}".format(row.total_sales_value) }}</td>
+                            <td>{{ row.average_daily_demand }}</td>
+                            <td>{{ row.forecast_demand }}</td>
+                            <td>{{ row.current_stock }}</td>
+                            <td>
+                                {% if row.risk_level == 'High' %}
+                                    <span class="pill high">High</span>
+                                {% elif row.risk_level == 'Moderate' %}
+                                    <span class="pill moderate">Moderate</span>
+                                {% elif row.risk_level == 'Low' %}
+                                    <span class="pill low">Low</span>
+                                {% else %}
+                                    <span class="pill neutral">Needs review</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ row.suggested_action }}</td>
+                            <td>{{ row.display_note_short if row.display_note_short is defined else (row.display_note if row.display_note is defined else row.suggested_action) }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div id="exportFeedback" class="empty-text hidden mt-2"></div>
+        </div>
+        <div class="empty-state-panel compact-empty-panel report-filter-empty hidden mt-3" id="reportFilterEmpty">
+            <div class="empty-state-text">No report records match the current search.</div>
+        </div>
+    {% else %}
+        <div class="empty-state-panel page-empty-panel mt-3">
+            <div class="empty-state-text">{{ report_context.empty_message or 'No report data available yet.' }}</div>
+        </div>
+    {% endif %}
+</div>
+
+<div class="report-filter-overlay" id="reportFilterOverlay" aria-hidden="true"></div>
+<aside class="report-filter-drawer" id="reportFilterDrawer" aria-hidden="true" aria-label="Report filters">
+    <div class="report-filter-drawer-header">
+        <div>
+            <h3 class="card-title mb-0">Filter Report</h3>
+            <p class="card-subtitle mb-0">Choose the records to include.</p>
+        </div>
+        <button type="button" class="product-detail-close" id="closeReportFilterDrawer" aria-label="Close report filter">×</button>
+    </div>
+
+    <form method="GET" action="{{ url_for('reports') }}" class="report-filter-drawer-body" id="reportFilterForm">
+        <div class="form-group">
+            <label class="control-label block">Report Type</label>
+            <select class="form-select filter-select" name="report_type">
+                {% for option in report_type_options %}
+                    <option value="{{ option.key }}" {% if report_context.filters.report_type == option.key %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="control-label block">Date Range</label>
+            <select class="form-select filter-select" name="period">
+                {% for option in report_period_options %}
+                    <option value="{{ option.key }}" {% if report_context.filters.period_key == option.key %}selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="control-label block">Stockout Risk</label>
+            <select class="form-select filter-select" name="risk">
+                <option value="">All Stockout Risks</option>
+                {% for level in report_risk_levels %}
+                    <option value="{{ level }}" {% if report_context.filters.risk_filter == level %}selected{% endif %}>{{ level if level != 'Unavailable' else 'Needs review' }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label class="control-label block">Category</label>
+            <select class="form-select filter-select" name="category" id="reportCategorySelect">
+                <option value="">All Categories</option>
+                {% for category in report_categories %}
+                    <option value="{{ category }}" {% if report_context.filters.category_filter == category %}selected{% endif %}>{{ category }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group report-product-picker">
+            <div class="report-product-picker-header">
+                <label class="control-label block mb-0">Products</label>
+                <label class="checkbox-line compact report-select-all-line">
+                    <input type="checkbox" id="reportSelectAllProducts">
+                    <span>Select All</span>
+                </label>
+            </div>
+            <div class="report-product-checklist" id="reportProductChecklist">
+                {% if product_names %}
+                    {% for category in report_categories %}
+                        {% for product_name in product_category_groups.get(category, []) %}
+                            <label class="checkbox-line report-product-option" data-category="{{ category }}">
+                                <input type="checkbox" name="products" value="{{ product_name }}" {% if product_name in report_context.filters.product_filters %}checked{% endif %}>
+                                <span>{{ product_name }}</span>
+                            </label>
+                        {% endfor %}
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-text">Products will appear after results are generated.</div>
+                {% endif %}
+            </div>
+            <div class="report-product-empty hidden" id="reportProductEmpty">No products found for this category.</div>
+        </div>
+
+        <div class="report-drawer-actions">
+            <button type="submit" class="btn btn-yellow">Filter Report</button>
+            <a href="{{ url_for('reports') }}" class="btn btn-outline" id="resetReportFilters" data-app-link="true">Reset</a>
+        </div>
+    </form>
+</aside>
+{% endblock %}

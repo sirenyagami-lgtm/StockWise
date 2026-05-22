@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% set product_view_mode = product_view_mode|default('full') %}
+{% set product_view_mode = product_view_mode if product_view_mode in ['full', 'basic'] else 'basic' %}
+{% set is_full_product_view = product_view_mode == 'full' %}
+{% set is_basic_product_view = product_view_mode == 'basic' %}
+{% set show_predicted_demand = is_full_product_view %}
+{% set show_stockout_risk = is_full_product_view %}
+{% set show_stock_concern = is_basic_product_view %}
+{% set concern_filter_column = 6 %}
+{% set status_filter_column = 7 if is_full_product_view else 5 %}
+<div class="page-header">
+    <h1 class="page-title">Products</h1>
+</div>
+
+<div id="productsPage" data-product-view-mode="{{ product_view_mode }}" data-product-detail-map='{{ product_detail_map|tojson }}'>
+    <div class="controls-row spread-controls mb-4 product-top-controls product-page-filters">
+        <div class="product-search-shell">
+            <input type="text" class="form-input search-input search-wide search-with-icon" id="productSearch" placeholder="Search product name..." {% if not inventory_rows %}disabled{% endif %}>
+        </div>
+
+        <div class="d-flex gap-3 product-filter-group flex-wrap">
+            <select class="form-select product-category-select" id="productCategoryFilter" data-column="2" {% if not inventory_rows %}disabled{% endif %}>
+                <option value="">All Categories</option>
+                {% for category in categories %}
+                    <option value="{{ category }}">{{ category }}</option>
+                {% endfor %}
+            </select>
+
+            {% if show_stockout_risk or show_stock_concern %}
+            <select class="form-select" id="productRiskFilter" data-column="{{ concern_filter_column }}" {% if not inventory_rows %}disabled{% endif %}>
+                <option value="">{{ 'All Stockout Risks' if show_stockout_risk else 'All Stock Concerns' }}</option>
+                {% for level in risk_levels %}
+                    <option value="{{ level if level != 'Unavailable' else 'Needs review' }}">{{ level if level != 'Unavailable' else 'Needs review' }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
+
+            <select class="form-select" id="productStatusFilter" data-column="{{ status_filter_column }}" {% if not inventory_rows %}disabled{% endif %}>
+                <option value="">All Stock Status</option>
+                {% for status in stock_statuses %}
+                    <option value="{{ status }}">{{ status }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <div class="summary-strip mb-4">
+        <div class="strip-title">Inventory Summary</div>
+        <div class="strip-item">
+            Total Products:
+            <strong>{{ product_summary_counts.total_products if inventory_rows else 'No data yet' }}</strong>
+        </div>
+        {% if is_basic_product_view %}
+            <div class="strip-item">
+                Low Products:
+                <strong>{{ product_summary_counts.low_stock if inventory_rows else 'No data yet' }}</strong>
+            </div>
+            <div class="strip-item">
+                Monitor Products:
+                <strong>{{ product_summary_counts.monitor_products if inventory_rows else 'No data yet' }}</strong>
+            </div>
+            <div class="strip-item">
+                Stable Products:
+                <strong>{{ product_summary_counts.stable_products if inventory_rows else 'No data yet' }}</strong>
+            </div>
+        {% else %}
+            <div class="strip-item">
+                Low Stock:
+                <strong>{{ product_summary_counts.low_stock if inventory_rows else 'No data yet' }}</strong>
+            </div>
+            <div class="strip-item">
+                Needs Review:
+                <strong>{{ product_summary_counts.needs_review if inventory_rows else 'No data yet' }}</strong>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="card product-record-card">
+        <div class="table-header-flex">
+            <div>
+                <h3 class="card-title mb-0">Product Inventory</h3>
+            </div>
+        </div>
+
+        {% if inventory_rows %}
+            <div class="table-responsive table-scroll-shell product-table-scroll mt-3">
+                <table class="data-table" id="productTable" data-empty-target="productFilterEmpty">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Product Name</th>
+                            <th>Category</th>
+                            <th>Unit Type</th>
+                            <th>Latest Recorded Stock</th>
+                            {% if show_predicted_demand %}<th>Predicted Demand</th>{% endif %}
+                            {% if show_stockout_risk %}<th>Stockout Risk</th>{% endif %}
+                            <th>Stock Status</th>
+                            {% if show_stock_concern %}<th>Stock Concern</th>{% endif %}
+                            {% if is_full_product_view %}<th>Last Processed</th>{% endif %}
+                            <th>Record</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in inventory_rows %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ item.product_name }}</td>
+                                <td>{{ item.category }}</td>
+                                <td>{{ item.unit_type }}</td>
+                                <td>{{ item.current_stock }}</td>
+                                {% if show_predicted_demand %}<td>{{ item.forecast_demand }}</td>{% endif %}
+                                {% if show_stockout_risk %}
+                                <td>
+                                    {% if item.risk_level == 'High' %}
+                                        <span class="pill high">High</span>
+                                    {% elif item.risk_level == 'Moderate' %}
+                                        <span class="pill moderate">Moderate</span>
+                                    {% elif item.risk_level == 'Low' %}
+                                        <span class="pill low">Low</span>
+                                    {% else %}
+                                        <span class="pill neutral">Needs review</span>
+                                    {% endif %}
+                                </td>
+                                {% endif %}
+                                <td>{{ item.stock_status }}</td>
+                                {% if show_stock_concern %}
+                                <td>
+                                    {% if item.risk_level == 'High' %}
+                                        <span class="pill high">High</span>
+                                    {% elif item.risk_level == 'Moderate' %}
+                                        <span class="pill moderate">Moderate</span>
+                                    {% elif item.risk_level == 'Low' %}
+                                        <span class="pill low">Low</span>
+                                    {% else %}
+                                        <span class="pill neutral">Needs review</span>
+                                    {% endif %}
+                                </td>
+                                {% endif %}
+                                {% if is_full_product_view %}<td>{{ item.last_processed_label }}</td>{% endif %}
+                                <td>
+                                    <button class="btn btn-yellow small product-detail-btn" type="button" data-product-name="{{ item.product_name }}">{{ 'View Record' if is_full_product_view else 'Check Item' }}</button>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="empty-state-panel compact-empty product-filter-empty hidden mt-3" id="productFilterEmpty">
+                <div class="empty-state-text">No product records match the current search or filters.</div>
+                <div class="empty-state-subtext">Try clearing the search box or choosing a different category, {{ 'stockout risk' if show_stockout_risk else 'stock concern' }}, or stock status.</div>
+            </div>
+
+            <div class="helper-note mt-3 product-record-tip">
+                <p class="empty-text">{% if is_basic_product_view %}Tip: Open a product record to review basic product and stock details.{% else %}Tip: Open a product record to review latest stock, predicted demand, stockout risk, and suggested decision.{% endif %}</p>
+            </div>
+        {% else %}
+            <div class="empty-state-panel page-empty-panel mt-3">
+                <div class="empty-state-text">No product data available yet.</div>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="product-detail-overlay" id="productDetailOverlay" aria-hidden="true"></div>
+    <aside class="product-detail-drawer product-record-drawer" id="productDetailDrawer" aria-hidden="true">
+        <div class="product-detail-header">
+            <div>
+                <h3 class="card-title mb-0 product-record-title" id="drawerProductName">Product Record</h3>
+                <p class="card-subtitle mb-0 product-record-subtitle" id="drawerProductCategory">{% if is_basic_product_view %}Review this item's shelf status, stock concern, and recommended check.{% else %}Review this item's latest recorded stock and current review status.{% endif %}</p>
+            </div>
+            <button class="product-detail-close" id="productDetailClose" type="button" aria-label="Close product record">×</button>
+        </div>
+
+        <div class="product-detail-body product-record-body">
+            <section class="product-drawer-section mb-3">
+                <div class="card compact-card product-record-overview-card">
+                    <h4 class="card-title small-card-title drawer-section-heading">Item Overview</h4>
+                    <div class="product-detail-meta-grid product-record-meta-grid">
+                        <div><span class="detail-meta-label">Category</span><strong id="drawerCategory">-</strong></div>
+                        <div><span class="detail-meta-label">Unit Type</span><strong id="drawerUnitType">-</strong></div>
+                        <div><span class="detail-meta-label">Stock Status</span><strong id="drawerStockStatusText">-</strong></div>
+                        <div><span class="detail-meta-label">Last Processed</span><strong id="drawerLastProcessed">-</strong></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="product-drawer-section mb-3">
+                <div class="grid-row two-cols product-detail-stat-grid product-record-stat-grid compact-gap">
+                    <div class="card product-detail-stat-card compact-card product-record-mini-card">
+                        <div class="stat-label-strong">Latest Recorded Stock</div>
+                        <div class="stat-value text-md" id="drawerCurrentStock">-</div>
+                    </div>
+                    {% if is_full_product_view %}
+                    <div class="card product-detail-stat-card compact-card product-record-mini-card">
+                        <div class="stat-label-strong">Reorder Point</div>
+                        <div class="stat-value text-md" id="drawerReorderPoint">-</div>
+                    </div>
+                    {% endif %}
+                    {% if show_predicted_demand %}
+                    <div class="card product-detail-stat-card compact-card product-record-mini-card">
+                        <div class="stat-label-strong">Predicted Demand</div>
+                        <div class="stat-value text-md" id="drawerForecastDemand">-</div>
+                    </div>
+                    {% endif %}
+                    {% if show_stockout_risk or show_stock_concern %}
+                    <div class="card product-detail-stat-card compact-card product-record-mini-card">
+                        <div class="stat-label-strong">{{ 'Stockout Risk' if show_stockout_risk else 'Stock Concern' }}</div>
+                        <div class="product-detail-pill-row product-record-pill-row" id="drawerRiskPillRow"></div>
+                    </div>
+                    {% endif %}
+                </div>
+            </section>
+
+            {% if is_full_product_view %}
+            <section class="product-drawer-section mb-3">
+                <div class="card compact-card product-review-card">
+                    <h4 class="card-title small-card-title drawer-section-heading">Review Status</h4>
+                    <div class="product-record-review-grid">
+                        <div class="product-analysis-note product-record-note">
+                            <span class="detail-meta-label">Main Reason</span>
+                            <p class="structured-recommendation-why mb-0" id="drawerWhyFlagged">-</p>
+                        </div>
+                        <div class="product-analysis-note product-record-note emphasis-note">
+                            <span class="detail-meta-label">Suggested Decision</span>
+                            <p class="structured-recommendation-why mb-0" id="drawerSuggestedAction">-</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            {% endif %}
+
+            {% if is_basic_product_view %}
+            <section class="product-drawer-section mb-3">
+                <div class="card compact-card product-assistant-guide-card">
+                    <h4 class="card-title small-card-title drawer-section-heading">Assistant Check Guide</h4>
+                    <div class="product-record-review-grid">
+                        <div class="product-analysis-note product-record-note">
+                            <span class="detail-meta-label">Stock Concern</span>
+                            <p class="structured-recommendation-why mb-0" id="drawerWhyFlagged">-</p>
+                        </div>
+                        <div class="product-analysis-note product-record-note emphasis-note">
+                            <span class="detail-meta-label">Suggested Action</span>
+                            <p class="structured-recommendation-why mb-0" id="drawerSuggestedAction">-</p>
+                        </div>
+                    </div>
+                    <div class="product-analysis-note product-record-note product-assistant-guide-note">
+                        <span class="detail-meta-label">What to Check</span>
+                        <p class="structured-recommendation-why mb-0" id="drawerPreparationGuide">-</p>
+                    </div>
+                </div>
+            </section>
+            {% endif %}
+
+            {% if is_full_product_view %}
+            <section class="product-drawer-section">
+                <div class="card compact-card recent-trend-card product-record-trend-card">
+                    <h4 class="card-title small-card-title drawer-section-heading">Recent Sales Trend</h4>
+                    <div class="product-detail-chart-shell product-record-chart-shell mb-3">
+                        <canvas id="drawerRecentSalesChart" aria-label="Recent sales trend chart"></canvas>
+                        <div class="chart-empty-message hidden" id="drawerRecentSalesChartMessage">No chart data available yet.</div>
+                    </div>
+                    <div class="structured-recommendation-meta product-record-trend-meta">
+                        <span><strong>Recent 7-day Sales:</strong> <span id="drawerRecentSalesTotal">-</span></span>
+                        <span><strong>Average Daily Demand:</strong> <span id="drawerAverageDailyDemand">-</span></span>
+                    </div>
+                </div>
+            </section>
+            {% endif %}
+        </div>
+    </aside>
+</div>
+{% endblock %}

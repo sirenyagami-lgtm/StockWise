@@ -1,0 +1,391 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header page-header-with-action insights-page-header">
+    <div class="page-header-main">
+        <h1 class="page-title">Insights</h1>
+    </div>
+    <div class="page-header-actions">
+        <div class="insights-tabs" id="insightsTabs" data-active-tab="{{ active_tab }}">
+            <button class="insights-tab-btn {% if active_tab == 'forecast' %}active{% endif %}" type="button" data-tab-target="forecast">Demand Forecast</button>
+            <button class="insights-tab-btn {% if active_tab == 'risk' %}active{% endif %}" type="button" data-tab-target="risk">Stockout Risk</button>
+        </div>
+    </div>
+</div>
+
+<div class="insights-panels" id="insightsPage">
+    <section class="insights-panel {% if active_tab == 'forecast' %}active{% endif %}" data-tab-panel="forecast">
+        {% if forecast_summary.products %}
+            <div class="card mb-3 insights-filter-card">
+                <div class="controls-row insights-forecast-controls" id="insightsForecastControls">
+                    <div class="control-group insights-control-group">
+                        <label class="control-label">Select Product</label>
+                        <select class="form-select" id="forecastProductSelect">
+                            <option value="__total__" selected>All Products</option>
+                            {% for product in forecast_summary.products %}
+                                <option value="{{ product }}">{{ product }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="control-group insights-control-group">
+                        <label class="control-label">Category</label>
+                        <select class="form-select" id="forecastCategorySelect">
+                            <option value="">All Categories</option>
+                            {% for category in forecast_summary.categories %}
+                                <option value="{{ category }}">{{ category }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="control-group insights-control-group insights-range-control">
+                        <label class="control-label">Forecast View</label>
+                        <div class="segmented-control insights-range-group" id="forecastRangeButtons">
+                            {% for option in forecast_summary.range_options %}
+                                <button class="seg-btn {% if option.key == 'daily' %}active{% endif %}" type="button" data-forecast-range="{{ option.key }}">{{ option.label }}</button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="insights-demand-overview mb-3">
+                <div class="card insights-metrics-card">
+                    <div class="insights-compact-metrics" id="insightsFilterSummary">
+                        <div class="insights-metric-tile">
+                            <span>Products Shown</span>
+                            <strong id="filterTotalProducts">{{ forecast_summary.filter_metrics.total_products if forecast_summary.filter_metrics else 0 }}</strong>
+                        </div>
+                        <div class="insights-metric-tile">
+                            <span>High-Risk Products</span>
+                            <strong id="filterHighRiskProducts">{{ forecast_summary.filter_metrics.high_risk_products if forecast_summary.filter_metrics else 0 }}</strong>
+                        </div>
+                        <div class="insights-metric-tile">
+                            <span>Rising Demand</span>
+                            <strong id="filterRisingDemandProducts">{{ forecast_summary.filter_metrics.rising_demand_products if forecast_summary.filter_metrics else 0 }}</strong>
+                        </div>
+                        <div class="insights-metric-tile">
+                            <span>Low Stock</span>
+                            <strong id="filterLowStockProducts">{{ forecast_summary.filter_metrics.low_stock_products if forecast_summary.filter_metrics else 0 }}</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card insights-review-card compact-priority-card">
+                    <div class="table-header-flex">
+                        <div>
+                            <h3 class="card-title">Priority Products</h3>
+                        </div>
+                    </div>
+                    <div class="review-first-list compact-review-list" id="productsToReviewFirst">
+                        {% if forecast_summary.priority_rows %}
+                            {% for row in forecast_summary.priority_rows %}
+                                <div class="review-first-item compact-review-item">
+                                    <div class="review-first-name"><strong>{{ row.product_name }}</strong></div>
+                                    <div class="review-first-meta">
+                                        {% if row.risk_level == 'High' %}
+                                            <span class="pill high">High</span>
+                                        {% elif row.risk_level == 'Moderate' %}
+                                            <span class="pill moderate">Moderate</span>
+                                        {% elif row.risk_level == 'Low' %}
+                                            <span class="pill low">Safe</span>
+                                        {% else %}
+                                            <span class="pill neutral">Needs review</span>
+                                        {% endif %}
+                                        <span>{{ row.suggested_action }}</span>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="empty-state-panel compact-empty-panel">
+                                <div class="empty-state-text">No records available yet.</div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3 insights-demand-card">
+                <div class="table-header-flex compact-heading-row">
+                    <h3 class="card-title">Demand Outlook</h3>
+                </div>
+                {% if forecast_summary.initial_view and forecast_summary.initial_view.chart.chart_message %}
+                    <div class="chart-note mb-2" id="forecastChartMessage">{{ forecast_summary.initial_view.chart.chart_message }}</div>
+                {% else %}
+                    <div class="chart-note mb-2 hidden" id="forecastChartMessage"></div>
+                {% endif %}
+                {% if forecast_summary.initial_view and forecast_summary.initial_view.chart.forecast_start_label %}
+                    <div class="chart-note chart-note-secondary mb-2" id="forecastStartLabel">Forecast starts here: {{ forecast_summary.initial_view.chart.forecast_start_label }}</div>
+                {% else %}
+                    <div class="chart-note chart-note-secondary mb-2 hidden" id="forecastStartLabel"></div>
+                {% endif %}
+                <div class="chart-container insights-chart-container">
+                    <canvas id="insightsForecastChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="table-header-flex compact-heading-row">
+                    <h3 class="card-title">Demand Details</h3>
+                </div>
+                <div class="table-responsive table-scroll-shell insights-table-shell mt-3">
+                    <table class="data-table" id="insightsForecastTable">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Category</th>
+                                <th>Period</th>
+                                <th>Predicted Demand</th>
+                                <th>Trend</th>
+                                <th>Stockout Risk</th>
+                                <th>Suggested Decision</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="insightsForecastTableBody">
+                            {% if forecast_summary.initial_view %}
+                                {% for row in forecast_summary.initial_view.table_rows %}
+                                    <tr>
+                                        <td>{{ row.product_name }}</td>
+                                        <td>{{ row.category }}</td>
+                                        <td>{{ row.forecast_period }}</td>
+                                        <td>{{ row.forecast_demand }}</td>
+                                        <td>{{ row.trend }}</td>
+                                        <td>
+                                            {% if row.risk_level == 'High' %}
+                                                <span class="pill high">High</span>
+                                            {% elif row.risk_level == 'Moderate' %}
+                                                <span class="pill moderate">Moderate</span>
+                                            {% elif row.risk_level == 'Low' %}
+                                                <span class="pill low">Safe</span>
+                                            {% else %}
+                                                <span class="pill neutral">Needs review</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ row.suggested_action }}</td>
+                                        <td><div>{{ row.notes }}</div></td>
+                                    </tr>
+                                {% endfor %}
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <script id="forecastPayload" type="application/json">{{ forecast_summary|tojson }}</script>
+        {% else %}
+            <div class="card mb-3 insights-filter-card insights-no-data-controls">
+                <div class="controls-row insights-forecast-controls" aria-disabled="true">
+                    <div class="control-group insights-control-group">
+                        <label class="control-label">Select Product</label>
+                        <select class="form-select" disabled>
+                            <option selected>All Products</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group insights-control-group">
+                        <label class="control-label">Category</label>
+                        <select class="form-select" disabled>
+                            <option selected>All Categories</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group insights-control-group insights-range-control">
+                        <label class="control-label">Forecast View</label>
+                        <div class="segmented-control insights-range-group disabled-segmented-control">
+                            <button class="seg-btn active" type="button" disabled>Daily</button>
+                            <button class="seg-btn" type="button" disabled>Weekly</button>
+                            <button class="seg-btn" type="button" disabled>Monthly</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="insights-demand-overview mb-3">
+                <div class="card insights-metrics-card">
+                    <div class="insights-compact-metrics no-data-metrics">
+                        <div class="insights-metric-tile">
+                            <span>Products Shown</span>
+                            <strong class="empty-value">No data yet</strong>
+                        </div>
+                        <div class="insights-metric-tile">
+                            <span>High-Risk Products</span>
+                            <strong class="empty-value">No data yet</strong>
+                        </div>
+                        <div class="insights-metric-tile">
+                            <span>Rising Demand</span>
+                            <strong class="empty-value">No data yet</strong>
+                        </div>
+                        <div class="insights-metric-tile">
+                            <span>Low Stock</span>
+                            <strong class="empty-value">No data yet</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card insights-review-card compact-priority-card">
+                    <div class="table-header-flex">
+                        <div>
+                            <h3 class="card-title">Priority Products</h3>
+                        </div>
+                    </div>
+                    <div class="empty-state-panel compact-empty-panel mt-2">
+                        <div class="empty-state-text">No data available yet.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3 insights-demand-card">
+                <div class="table-header-flex compact-heading-row">
+                    <h3 class="card-title">Demand Outlook</h3>
+                </div>
+                <div class="empty-state-panel page-empty-panel mt-3">
+                    <div class="empty-state-text">No data available yet.</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="table-header-flex compact-heading-row">
+                    <h3 class="card-title">Demand Details</h3>
+                </div>
+                <div class="empty-state-panel page-empty-panel mt-3">
+                    <div class="empty-state-text">No data available yet.</div>
+                </div>
+            </div>
+        {% endif %}
+    </section>
+
+    <section class="insights-panel {% if active_tab == 'risk' %}active{% endif %}" data-tab-panel="risk">
+        <div class="grid-row four-cols mb-3 insights-risk-summary-row">
+            <div class="card stat-card row-layout compact-risk-stat risk-summary-card-high">
+                <div class="stat-icon-large danger-bg">
+                    <img src="{{ url_for('static', filename='images/warning.png') }}" alt="">
+                </div>
+                <div>
+                    <div class="stat-label">High Risk</div>
+                    <div class="stat-value empty-value">{{ risk_summary.high_count if risk_summary.has_data else 'No data yet' }}</div>
+                </div>
+            </div>
+
+            <div class="card stat-card row-layout compact-risk-stat risk-summary-card-review">
+                <div class="stat-icon-large review-bg">
+                    <img src="{{ url_for('static', filename='images/box.png') }}" alt="">
+                </div>
+                <div>
+                    <div class="stat-label">Needs Review Soon</div>
+                    <div class="stat-value empty-value">{{ risk_summary.needs_restock_count if risk_summary.has_data else 'No data yet' }}</div>
+                </div>
+            </div>
+
+            <div class="card stat-card row-layout compact-risk-stat risk-summary-card-moderate">
+                <div class="stat-icon-large warning-bg">
+                    <img src="{{ url_for('static', filename='images/warning.png') }}" alt="">
+                </div>
+                <div>
+                    <div class="stat-label">Moderate Risk</div>
+                    <div class="stat-value empty-value">{{ risk_summary.moderate_count if risk_summary.has_data else 'No data yet' }}</div>
+                </div>
+            </div>
+
+            <div class="card stat-card row-layout compact-risk-stat risk-summary-card-safe">
+                <div class="stat-icon-large success-bg">
+                    <img src="{{ url_for('static', filename='images/secure.png') }}" alt="">
+                </div>
+                <div>
+                    <div class="stat-label">Safe Products</div>
+                    <div class="stat-value empty-value">{{ risk_summary.safe_count if risk_summary.has_data else 'No data yet' }}</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="table-header-flex compact-heading-row">
+                <h3 class="card-title">Stockout Risk Overview</h3>
+            </div>
+
+            {% if risk_summary.inventory_rows %}
+                <div class="table-responsive table-scroll-shell insights-table-shell mt-3">
+                    <table class="data-table" id="insightsRiskTable">
+                        <thead>
+                            <tr>
+                                <th>Product Name</th>
+                                <th>Latest Recorded Stock</th>
+                                <th>Predicted Demand</th>
+                                <th>Stockout Risk</th>
+                                <th>Main Reason</th>
+                                <th>Suggested Decision</th>
+                                <th>Last Processed Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in risk_summary.inventory_rows %}
+                                <tr>
+                                    <td>{{ item.product_name }}</td>
+                                    <td>{{ item.current_stock }}</td>
+                                    <td>{{ item.forecast_demand }}</td>
+                                    <td>
+                                        {% if item.risk_level == 'High' %}
+                                            <span class="pill high">High</span>
+                                        {% elif item.risk_level == 'Moderate' %}
+                                            <span class="pill moderate">Moderate</span>
+                                        {% elif item.risk_level == 'Low' %}
+                                            <span class="pill low">Safe</span>
+                                        {% else %}
+                                            <span class="pill neutral">Needs review</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ item.display_note if item.display_note is defined else item.why_flagged }}</td>
+                                    <td>{{ item.suggested_action }}</td>
+                                    <td>{{ item.last_processed_label }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state-panel page-empty-panel mt-3">
+                    <div class="empty-state-text">No data available yet.</div>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="grid-row two-cols insights-risk-lower-grid">
+            <div class="card risk-action-card compact-risk-list-card">
+                <h3 class="card-title">Fastest Rising Demand Items</h3>
+                {% if risk_summary.fastest_rising %}
+                    <div class="risk-summary-list compact-risk-summary-list mt-3">
+                        {% for item in risk_summary.fastest_rising %}
+                            <div class="risk-summary-item rising-demand-item">
+                                <div>
+                                    <strong>{{ item.product_name }}</strong>
+                                    <span>{{ item.display_note if item.display_note is defined else item.why_flagged }}</span>
+                                </div>
+                                <span class="pill moderate">Rising</span>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state-panel compact-empty-panel mt-2">
+                        <div class="empty-state-text">{{ risk_summary.fastest_rising_empty_message if risk_summary.has_data else 'No data available yet.' }}</div>
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="card risk-action-card compact-risk-list-card risk-factors-card">
+                <h3 class="card-title">Risk Factors</h3>
+                {% if risk_summary.has_data and risk_summary.main_risk_drivers %}
+                    <div class="risk-driver-list compact-risk-driver-list mt-3">
+                        {% for driver in risk_summary.main_risk_drivers %}
+                            <div class="risk-driver-item">{{ driver }}</div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-state-panel compact-empty-panel mt-2">
+                        <div class="empty-state-text">{{ 'No risk factors available yet.' if risk_summary.has_data else 'No data available yet.' }}</div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
