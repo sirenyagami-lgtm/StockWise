@@ -8467,7 +8467,8 @@ def auth():
                 auth_message_type = "error"
 
         except Exception as exc:
-            auth_message = "The request could not be completed right now. Please check the database connection and try again."
+            print("AUTH ERROR:", exc)
+            auth_message = f"Error: {str(exc)}"
             auth_message_type = "error"
 
     return render_template(

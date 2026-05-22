@@ -3,8 +3,8 @@
 -- It creates structure only. It does not insert fake sales data.
 -- Canonical account roles: Owner, Store Manager, Operational Assistant.
 
-CREATE DATABASE IF NOT EXISTS stockwise_db CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
-USE stockwise_db;
+CREATE DATABASE IF NOT EXISTS defaultdb CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+USE defaultdb;
 
 CREATE TABLE IF NOT EXISTS users (
     user_id INT(11) NOT NULL AUTO_INCREMENT,
