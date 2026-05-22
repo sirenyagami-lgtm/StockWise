@@ -138,8 +138,15 @@
 
                     <div class="form-group">
                         <label class="control-label block" for="setupUserRole">Role</label>
-                        <input type="text" class="form-input w-100" id="setupUserRole" value="Owner" readonly>
-                        <input type="hidden" name="user_role" value="Owner">
+                        <select class="form-select w-100" id="setupUserRole" name="user_role" required data-setup-role-select>
+                            <option value="Owner" {% if form_values.user_role == 'Owner' %}selected{% endif %}>Owner</option>
+                            <optgroup label="Employee roles">
+                                {% for option in employee_role_options %}
+                                    <option value="{{ option }}" {% if form_values.user_role == option %}selected{% endif %}>{{ option }}</option>
+                                {% endfor %}
+                            </optgroup>
+                        </select>
+                        <p class="settings-help-text" data-setup-role-help>Owner has full access. Employees can be Store Manager or Operational Assistant.</p>
                     </div>
                 </div>
 

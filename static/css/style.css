@@ -8955,6 +8955,11 @@ body.processing-open {
     padding: 34px 24px;
 }
 
+.setup-upload-dropzone.dragover {
+    border-color: var(--gray-dark);
+    background: #fff6cf;
+}
+
 .setup-upload-dropzone-copy {
     max-width: 520px;
     display: flex;

@@ -50,6 +50,10 @@ PROFILE_UPLOAD_SUBDIR = "profiles"
 STORE_LOGO_UPLOAD_SUBDIR = "store_logos"
 REQUIRED_UPLOAD_COLUMNS = ["date", "product_name", "quantity_sold"]
 OPTIONAL_UPLOAD_COLUMNS = ["time", "category", "current_stock", "reorder_point", "unit_price", "unit_type"]
+MAX_UPLOAD_SIZE_BYTES = int(os.environ.get("STOCKWISE_MAX_UPLOAD_SIZE_BYTES", str(8 * 1024 * 1024)))
+MAX_SYNC_MODEL_ROWS = int(os.environ.get("STOCKWISE_MAX_SYNC_MODEL_ROWS", "3000"))
+MAX_SYNC_SARIMA_PRODUCTS = int(os.environ.get("STOCKWISE_MAX_SYNC_SARIMA_PRODUCTS", "18"))
+MAX_SYNC_MODEL_SECONDS = int(os.environ.get("STOCKWISE_MAX_SYNC_MODEL_SECONDS", "18"))
 
 DATA_FORMAT_SYSTEM_FIELDS = [
     {"key": "transaction_date", "label": "Transaction Date Column", "internal": "date", "required": True, "default_column": "Transaction Date"},
@@ -2994,12 +2998,15 @@ def read_uploaded_file(file_storage):
     file_bytes = file_storage.read()
     if not file_bytes:
         raise ValueError("The selected file is empty. Please upload a file with sales records.")
+    if len(file_bytes) > MAX_UPLOAD_SIZE_BYTES:
+        max_mb = MAX_UPLOAD_SIZE_BYTES / (1024 * 1024)
+        raise ValueError(f"The selected file is too large for this deployment. Please upload a file under {max_mb:.0f} MB or split it into smaller batches.")
 
     buffer = BytesIO(file_bytes)
 
     try:
         if extension == "csv":
-            df = pd.read_csv(buffer)
+            df = pd.read_csv(buffer, encoding="utf-8-sig")
         elif extension in {"xlsx", "xls"}:
             df = pd.read_excel(buffer)
         else:
@@ -3780,16 +3787,17 @@ def user_needs_onboarding(user_id: int | None) -> bool:
 
 
 def validate_personal_setup_form(form) -> tuple[dict[str, str], list[str]]:
+    requested_role = normalize_role(form.get("user_role", "Owner"))
     values = {
         "display_name": form.get("display_name", "").strip(),
-        "user_role": form.get("user_role", "Owner").strip() or "Owner",
+        "user_role": requested_role if requested_role in USER_ROLE_OPTIONS else "Owner",
     }
     errors: list[str] = []
 
     if not values["display_name"]:
         errors.append("Please enter your full name.")
     if values["user_role"] not in USER_ROLE_OPTIONS:
-        values["user_role"] = "Owner"
+        errors.append("Please choose Owner, Store Manager, or Operational Assistant.")
 
     return values, errors
 
@@ -3829,6 +3837,7 @@ def save_personal_setup_from_form(user_id: int, form, files=None) -> tuple[bool,
             session["user_name"] = refreshed_user.get("full_name") or values["display_name"]
             session["user_email"] = refreshed_user.get("email") or current_email
             session["user_position"] = refreshed_user.get("position") or values["user_role"]
+            session["user_role"] = normalize_role(refreshed_user.get("role") or refreshed_user.get("position") or values["user_role"])
             session["user_profile_image"] = refreshed_user.get("profile_image") or ""
 
         return True, "Personal information saved.", values
@@ -5378,6 +5387,10 @@ def get_or_create_product_id(cursor, user_id: int, product_name: str, category_i
     return cursor.lastrowid
 
 
+def _chunked(iterable: list[Any], chunk_size: int = 1000) -> list[list[Any]]:
+    return [iterable[index:index + chunk_size] for index in range(0, len(iterable), chunk_size)]
+
+
 def save_processed_dataset_to_database(user_id: int, filename: str, processed_df: pd.DataFrame, upload_mode: str = "new") -> int:
     if user_id is None:
         raise ValueError("A logged-in user is required before saving uploads.")
@@ -5398,8 +5411,12 @@ def save_processed_dataset_to_database(user_id: int, filename: str, processed_df
             (user_id, filename, file_type, 'validated', len(processed_df), f'Processed and saved from Flask upload workflow ({set_selected_upload_mode(upload_mode)})')
         )
         upload_id = cursor.lastrowid
-        latest_inventory_snapshots = {}
-        product_map = {}
+
+        category_cache: dict[str, int] = {}
+        product_map: dict[str, int] = {}
+        latest_inventory_snapshots: dict[int, dict[str, Any]] = {}
+        sales_rows: list[tuple[Any, ...]] = []
+        inventory_history_rows: list[tuple[Any, ...]] = []
         data_format_preferences = get_data_format_preferences()
         saved_time_format = data_format_preferences.get("data_time_format", "auto")
 
@@ -5407,50 +5424,88 @@ def save_processed_dataset_to_database(user_id: int, filename: str, processed_df
             product_name = str(row.get('product_name', '')).strip()
             if not product_name:
                 continue
+
             parsed_date = pd.to_datetime(row.get('date'), errors='coerce')
             if pd.isna(parsed_date):
                 continue
+
             quantity_sold = to_int(row.get('quantity_sold'), 0)
             if quantity_sold <= 0:
                 continue
+
             category_name = str(row.get('category', 'Uncategorized')).strip() or 'Uncategorized'
             unit_price = to_float(row.get('unit_price'), 0.0)
             reorder_point = max(to_int(row.get('reorder_point'), 0), 0)
             unit_type = str(row.get('unit_type', 'Unit')).strip() or 'Unit'
-            category_id = get_or_create_category_id(cursor, category_name)
-            product_id = get_or_create_product_id(cursor, user_id, product_name, category_id, unit_price, reorder_point, unit_type)
-            product_map[product_name] = product_id
+
+            category_id = category_cache.get(category_name)
+            if category_id is None:
+                category_id = get_or_create_category_id(cursor, category_name)
+                category_cache[category_name] = category_id
+
+            product_id = product_map.get(product_name)
+            if product_id is None:
+                product_id = get_or_create_product_id(cursor, user_id, product_name, category_id, unit_price, reorder_point, unit_type)
+                product_map[product_name] = product_id
+
             transaction_time = parse_time_for_sql(row.get('time'), saved_time_format)
             time_of_day = infer_time_of_day_label(transaction_time)
             day_of_week = parsed_date.day_name()
             is_payday = to_int(row.get('is_payday'), 1 if parsed_date.day in {15, 30} else 0)
-            cursor.execute(
-                """
-                INSERT INTO sales_transactions (
-                    upload_id, product_id, quantity_sold, unit_price, transaction_date, transaction_time,
-                    time_of_day, day_of_week, is_payday
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (upload_id, product_id, quantity_sold, unit_price, parsed_date.date(), transaction_time, time_of_day, day_of_week, is_payday)
-            )
+
+            sales_rows.append((
+                upload_id,
+                product_id,
+                quantity_sold,
+                unit_price,
+                parsed_date.date(),
+                transaction_time,
+                time_of_day,
+                day_of_week,
+                is_payday,
+            ))
+
             current_stock_raw = row.get('current_stock')
             if current_stock_raw is not None and not pd.isna(current_stock_raw):
                 current_stock = max(to_int(current_stock_raw, 0), 0)
-                upsert_inventory(cursor, product_id, current_stock)
-                latest_inventory_snapshots[product_id] = {
-                    'recorded_at': parsed_date.to_pydatetime(),
-                    'stock_on_hand': current_stock,
-                    'is_stockout': 1 if current_stock <= 0 else 0,
-                }
+                existing_snapshot = latest_inventory_snapshots.get(product_id)
+                if existing_snapshot is None or parsed_date.to_pydatetime() >= existing_snapshot['recorded_at']:
+                    latest_inventory_snapshots[product_id] = {
+                        'recorded_at': parsed_date.to_pydatetime(),
+                        'stock_on_hand': current_stock,
+                        'is_stockout': 1 if current_stock <= 0 else 0,
+                    }
+
+        if not sales_rows:
+            raise ValueError("No valid sales rows were available to save after processing.")
+
+        insert_sales_sql = """
+            INSERT INTO sales_transactions (
+                upload_id, product_id, quantity_sold, unit_price, transaction_date, transaction_time,
+                time_of_day, day_of_week, is_payday
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        for chunk in _chunked(sales_rows, 1000):
+            cursor.executemany(insert_sales_sql, chunk)
 
         for product_id, snapshot in latest_inventory_snapshots.items():
-            cursor.execute(
-                """
+            upsert_inventory(cursor, product_id, snapshot['stock_on_hand'])
+            inventory_history_rows.append((
+                product_id,
+                upload_id,
+                snapshot['recorded_at'],
+                snapshot['stock_on_hand'],
+                snapshot['is_stockout'],
+                'Captured from uploaded sales data',
+            ))
+
+        if inventory_history_rows:
+            insert_history_sql = """
                 INSERT INTO inventory_history (product_id, upload_id, recorded_at, stock_on_hand, is_stockout, notes)
                 VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (product_id, upload_id, snapshot['recorded_at'], snapshot['stock_on_hand'], snapshot['is_stockout'], 'Captured from uploaded sales data')
-            )
+            """
+            for chunk in _chunked(inventory_history_rows, 1000):
+                cursor.executemany(insert_history_sql, chunk)
 
         cursor.execute(
             """
@@ -5458,7 +5513,7 @@ def save_processed_dataset_to_database(user_id: int, filename: str, processed_df
             SET upload_status = %s, row_count = %s, processed_at = CURRENT_TIMESTAMP
             WHERE upload_id = %s
             """,
-            ('processed', len(processed_df), upload_id)
+            ('processed', len(sales_rows), upload_id)
         )
         _apply_processed_upload_mode_effects(cursor, user_id, upload_id, upload_mode)
         conn.commit()
@@ -5470,7 +5525,6 @@ def save_processed_dataset_to_database(user_id: int, filename: str, processed_df
     finally:
         cursor.close()
         conn.close()
-
 
 def _apply_processed_upload_mode_effects(cursor, user_id: int, new_upload_id: int, upload_mode: str) -> None:
     normalized_mode = set_selected_upload_mode(upload_mode)
@@ -6510,6 +6564,123 @@ def _get_daily_sales_context(df: pd.DataFrame | None) -> dict[str, Any]:
     return context
 
 
+def _build_lightweight_model_outputs(daily_df: pd.DataFrame, horizon: int = 180) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Generate fast, database-backed results when hosted CPU/request limits are tight.
+
+    This prevents a medium upload from blocking Render while SARIMA is fitted for
+    many products.  The UI still receives forecast/risk rows immediately, and the
+    notes clearly label them as lightweight results.
+    """
+    sarima_summary: dict[str, Any] = {}
+    predictions: dict[str, Any] = {}
+    if daily_df is None or daily_df.empty or 'product_name' not in daily_df.columns:
+        return sarima_summary, {
+            'status': 'limited',
+            'note': 'Lightweight model outputs could not be generated because no daily sales frame was available.',
+            'predictions': {},
+            'feature_importances': {},
+            'model_source': 'Fast Risk Rules',
+        }
+
+    for product_name, grp in daily_df.groupby('product_name'):
+        product_key = str(product_name)
+        grp = grp.sort_values('date').copy()
+        quantity = pd.to_numeric(grp.get('quantity_sold'), errors='coerce').fillna(0.0)
+        if quantity.empty:
+            daily_average = 0.0
+        else:
+            recent_window = quantity.tail(min(14, len(quantity)))
+            daily_average = max(float(recent_window.mean()), 0.0)
+        forecast_daily = [round(daily_average, 4)] * horizon
+        sarima_summary[product_key] = {
+            'status': 'completed' if daily_average > 0 else 'limited',
+            'note': 'Fast hosted forecast generated from recent average daily sales. Full SARIMA was skipped to keep Render responsive.',
+            'model_source': 'Fast Forecast',
+            'daily': forecast_daily,
+            'horizons': {
+                7: round(sum(forecast_daily[:7]), 2),
+                14: round(sum(forecast_daily[:14]), 2),
+                28: round(sum(forecast_daily[:28]), 2),
+                30: round(sum(forecast_daily[:30]), 2),
+                180: round(sum(forecast_daily[:180]), 2),
+            },
+        }
+
+        latest = grp.iloc[-1].copy()
+        current_stock = to_float(latest.get('current_stock'), np.nan)
+        reorder_point = to_float(latest.get('reorder_point'), np.nan)
+        rolling_7 = max(float(quantity.tail(min(7, len(quantity))).mean()) if not quantity.empty else 0.0, 0.0)
+        rolling_3 = max(float(quantity.tail(min(3, len(quantity))).mean()) if not quantity.empty else 0.0, 0.0)
+        forecast_7 = sarima_summary[product_key]['horizons'][7] or 0.0
+        trend = 'Rising' if rolling_3 > rolling_7 * 1.08 else ('Falling' if rolling_3 < rolling_7 * 0.92 else 'Stable')
+
+        if pd.isna(current_stock) or pd.isna(reorder_point):
+            predictions[product_key] = {
+                'risk_level': 'Unavailable',
+                'probability': None,
+                'top_factors': ['latest recorded stock or reorder point is missing'],
+                'note': 'Fast risk rules could not score this product because inventory fields are incomplete.',
+                'model_source': 'Fast Risk Rules',
+                'suggested_action': 'Gather more sales history',
+                'priority': 'Low',
+                'stock_cover_days': None,
+            }
+            continue
+
+        stock_pressure = 0.0
+        if current_stock <= reorder_point:
+            stock_pressure += 0.45
+        if current_stock and forecast_7 > current_stock:
+            stock_pressure += 0.35
+        if trend == 'Rising':
+            stock_pressure += 0.15
+        probability = max(0.05, min(0.95, stock_pressure or 0.2))
+        factors = []
+        if current_stock <= reorder_point:
+            factors.append('stock is at or below the reorder point')
+        if current_stock and forecast_7 > current_stock:
+            factors.append('predicted demand may exceed available stock')
+        if trend == 'Rising':
+            factors.append('recent demand is rising')
+        if not factors:
+            factors.append('risk is based on latest stock, reorder point, and recent demand')
+
+        calibrated = _calibrate_risk_outcome(
+            probability=probability,
+            current_stock=float(current_stock),
+            reorder_point=float(reorder_point),
+            forecast_demand=float(forecast_7),
+            average_daily_demand=float(rolling_7),
+            trend=trend,
+            forecast_status=sarima_summary[product_key]['status'],
+            factors=factors,
+            risk_note='Fast hosted risk rules based on stock position and recent demand.',
+        )
+        predictions[product_key] = {
+            'risk_level': calibrated['risk_level'],
+            'probability': round(float(probability), 4),
+            'top_factors': factors[:3],
+            'note': calibrated['reason'],
+            'model_source': 'Fast Risk Rules',
+            'suggested_action': calibrated['suggested_action'],
+            'priority': calibrated['priority'],
+            'stock_cover_days': calibrated['stock_cover_days'],
+        }
+
+    return sarima_summary, {
+        'status': 'completed',
+        'note': 'Fast hosted stockout risk rules completed. Full XGBoost/SARIMA was skipped for this upload to avoid Render request timeouts.',
+        'predictions': predictions,
+        'feature_importances': {
+            'current_stock': 0.35,
+            'reorder_point': 0.25,
+            'expected_next_7d': 0.25,
+            'recent_growth': 0.15,
+        },
+        'model_source': 'Fast Risk Rules',
+    }
+
+
 def run_model_pipeline(user_id: int, upload_id: int, processed_df: pd.DataFrame) -> dict[str, Any]:
     daily_df = _prepare_daily_model_frame(processed_df)
     if daily_df.empty:
@@ -6539,31 +6710,45 @@ def run_model_pipeline(user_id: int, upload_id: int, processed_df: pd.DataFrame)
         clear_insights_cache()
         return artifacts
 
-    sarima_results = {}
-    for product_name, grp in daily_df.groupby('product_name'):
-        sarima_results[product_name] = _fit_sarima_forecast(grp.sort_values('date')['quantity_sold'], horizon=180)
+    product_count = int(daily_df['product_name'].nunique()) if 'product_name' in daily_df.columns else 0
+    uploaded_rows = len(processed_df) if processed_df is not None else len(daily_df)
+    use_lightweight_models = uploaded_rows > MAX_SYNC_MODEL_ROWS or product_count > MAX_SYNC_SARIMA_PRODUCTS
 
-    sarima_summary = {}
-    for product_name, result in sarima_results.items():
-        if result.get('status') == 'completed' and result.get('daily_forecast'):
-            daily = result['daily_forecast']
-            sarima_summary[product_name] = {
-                'status': result['status'],
-                'note': result['note'],
-                'model_source': result['model_source'],
-                'daily': daily,
-                'horizons': {7: round(sum(daily[:7]),2), 14: round(sum(daily[:14]),2), 28: round(sum(daily[:28]),2), 30: round(sum(daily[:30]),2), 180: round(sum(daily[:180]),2)},
-            }
+    if use_lightweight_models:
+        sarima_summary, xgb_output = _build_lightweight_model_outputs(daily_df, horizon=180)
+    else:
+        started_at = datetime.now()
+        sarima_results = {}
+        for product_name, grp in daily_df.groupby('product_name'):
+            if (datetime.now() - started_at).total_seconds() > MAX_SYNC_MODEL_SECONDS:
+                use_lightweight_models = True
+                break
+            sarima_results[product_name] = _fit_sarima_forecast(grp.sort_values('date')['quantity_sold'], horizon=180)
+
+        if use_lightweight_models:
+            sarima_summary, xgb_output = _build_lightweight_model_outputs(daily_df, horizon=180)
         else:
-            sarima_summary[product_name] = {
-                'status': result.get('status','limited'),
-                'note': result.get('note'),
-                'model_source': 'SARIMA',
-                'daily': [],
-                'horizons': {7: None, 14: None, 28: None, 30: None, 180: None},
-            }
+            sarima_summary = {}
+            for product_name, result in sarima_results.items():
+                if result.get('status') == 'completed' and result.get('daily_forecast'):
+                    daily = result['daily_forecast']
+                    sarima_summary[product_name] = {
+                        'status': result['status'],
+                        'note': result['note'],
+                        'model_source': result['model_source'],
+                        'daily': daily,
+                        'horizons': {7: round(sum(daily[:7]),2), 14: round(sum(daily[:14]),2), 28: round(sum(daily[:28]),2), 30: round(sum(daily[:30]),2), 180: round(sum(daily[:180]),2)},
+                    }
+                else:
+                    sarima_summary[product_name] = {
+                        'status': result.get('status','limited'),
+                        'note': result.get('note'),
+                        'model_source': 'SARIMA',
+                        'daily': [],
+                        'horizons': {7: None, 14: None, 28: None, 30: None, 180: None},
+                    }
+            xgb_output = _train_xgboost_and_predict(daily_df, sarima_summary)
 
-    xgb_output = _train_xgboost_and_predict(daily_df, sarima_summary)
     save_info = _save_model_outputs_to_db(user_id, upload_id, daily_df, sarima_summary, xgb_output)
     artifacts = _load_latest_model_artifacts_from_db(user_id, upload_id)
     artifacts['model_run_id'] = save_info.get('model_run_id')
@@ -8635,6 +8820,7 @@ def first_time_setup():
         form_values=form_values,
         store_type_options=get_store_type_options(),
         user_role_options=get_user_role_options(),
+        employee_role_options=EMPLOYEE_ROLE_OPTIONS,
         report_period_options=get_report_period_options(),
         upload_mode_options=get_upload_mode_options(),
         currency_options=get_currency_options(),
@@ -8669,13 +8855,23 @@ def download_standard_template():
 @login_required
 @role_required("dashboard")
 def dashboard():
-    dataset = get_processed_dataset()
-    dashboard_summary = get_dashboard_summary(dataset)
-    upload_status = get_upload_status()
-    current_role = get_session_role()
-    role_dashboard = get_role_dashboard_context(current_role, dashboard_summary, upload_status)
-    is_owner_dashboard = normalize_role(current_role) == "Owner"
-    recent_activity = get_activity_logs_for_current_store(limit=5) if is_owner_dashboard else []
+    try:
+        dataset = get_processed_dataset()
+        dashboard_summary = get_dashboard_summary(dataset)
+        upload_status = get_upload_status()
+        current_role = get_session_role()
+        role_dashboard = get_role_dashboard_context(current_role, dashboard_summary, upload_status)
+        is_owner_dashboard = normalize_role(current_role) == "Owner"
+        recent_activity = get_activity_logs_for_current_store(limit=5) if is_owner_dashboard else []
+    except Exception as exc:
+        # Dashboard rendering must never trap the user behind a 500 after upload.
+        print(f"[StockWise dashboard fallback] {type(exc).__name__}: {exc}", flush=True)
+        dataset = None
+        dashboard_summary = get_dashboard_summary(None)
+        upload_status = get_upload_status()
+        current_role = get_session_role()
+        role_dashboard = get_role_dashboard_context(current_role, dashboard_summary, upload_status)
+        recent_activity = []
     return render_page(
         "dashboard.html",
         dashboard_summary=dashboard_summary,

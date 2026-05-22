@@ -972,7 +972,7 @@
             if (progressRefs.value) progressRefs.value.textContent = `${safePercent}%`;
         }
 
-        function submitUploadWithProgress(form) {
+        function submitUploadWithProgress(form, overrideFile = null) {
             if (!form || form.dataset.uploadSubmitting === "true") return;
 
             if (!window.XMLHttpRequest || !window.FormData || !window.DOMParser) {
@@ -983,6 +983,9 @@
             form.dataset.uploadSubmitting = "true";
             const progressRefs = showUploadProgress("Uploading sales file...");
             const formData = new FormData(form);
+            if (overrideFile) {
+                formData.set("file", overrideFile, overrideFile.name || "upload.csv");
+            }
             const xhr = new XMLHttpRequest();
 
             xhr.open((form.getAttribute("method") || "POST").toUpperCase(), form.getAttribute("action") || window.location.href, true);
@@ -1016,10 +1019,12 @@
                     }
                 }
 
+                form.dataset.uploadSubmitting = "false";
                 form.submit();
             };
 
             xhr.onerror = () => {
+                form.dataset.uploadSubmitting = "false";
                 form.submit();
             };
 
@@ -1073,24 +1078,40 @@
         }
 
         if (dropzone && fileInput && selectFileForm) {
-            bindOnce(dropzone, "dragover", "upload-drag-over", (event) => {
+            bindOnce(dropzone, "dragenter", "upload-drag-enter", (event) => {
                 event.preventDefault();
+                event.stopPropagation();
                 dropzone.classList.add("dragover");
             });
-            bindOnce(dropzone, "dragleave", "upload-drag-leave", () => {
+            bindOnce(dropzone, "dragover", "upload-drag-over", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+                dropzone.classList.add("dragover");
+            });
+            bindOnce(dropzone, "dragleave", "upload-drag-leave", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
                 dropzone.classList.remove("dragover");
             });
             bindOnce(dropzone, "drop", "upload-drop-progress", (event) => {
                 event.preventDefault();
+                event.stopPropagation();
                 dropzone.classList.remove("dragover");
-                const files = event.dataTransfer.files;
+                const files = event.dataTransfer?.files;
                 if (!files || files.length === 0) return;
-                const transfer = new DataTransfer();
-                transfer.items.add(files[0]);
-                fileInput.files = transfer.files;
+                const droppedFile = files[0];
+                try {
+                    const transfer = new DataTransfer();
+                    transfer.items.add(droppedFile);
+                    fileInput.files = transfer.files;
+                } catch (error) {
+                    // Some browser/security contexts do not allow assigning FileList.
+                    // The XHR path below still sends the dropped file directly.
+                }
                 syncUploadModeInputs();
                 dropzone.classList.add("uploading");
-                submitUploadWithProgress(selectFileForm);
+                submitUploadWithProgress(selectFileForm, droppedFile);
             });
         }
 
@@ -2794,6 +2815,19 @@
     function initializeOnboardingPage(root) {
         initializeImagePreviews(root);
 
+        const roleSelect = root.querySelector('[data-setup-role-select]');
+        const roleHelp = root.querySelector('[data-setup-role-help]');
+        if (roleSelect && roleHelp && roleSelect.dataset.roleHelpBound !== 'true') {
+            roleSelect.dataset.roleHelpBound = 'true';
+            const updateRoleHelp = () => {
+                roleHelp.textContent = roleSelect.value === 'Owner'
+                    ? 'Owner has full access to settings, uploads, reports, team access, and data management.'
+                    : 'Employee account selected. Employee roles are limited to Store Manager or Operational Assistant.';
+            };
+            roleSelect.addEventListener('change', updateRoleHelp);
+            updateRoleHelp();
+        }
+
         const logoChoice = root.querySelector('[data-logo-choice]');
         const logoPanel = root.querySelector('[data-logo-upload-panel]');
         if (logoChoice && logoPanel && logoChoice.dataset.logoChoiceBound !== 'true') {
@@ -2815,6 +2849,34 @@
             firstUploadInput.addEventListener('change', () => {
                 if (firstUploadInput.files && firstUploadInput.files.length > 0) {
                     firstUploadForm.submit();
+                }
+            });
+            ['dragenter', 'dragover'].forEach((eventName) => {
+                firstUploadForm.addEventListener(eventName, (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+                    firstUploadForm.classList.add('dragover');
+                });
+            });
+            ['dragleave', 'drop'].forEach((eventName) => {
+                firstUploadForm.addEventListener(eventName, (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    firstUploadForm.classList.remove('dragover');
+                });
+            });
+            firstUploadForm.addEventListener('drop', (event) => {
+                const files = event.dataTransfer?.files;
+                if (!files || files.length === 0) return;
+                try {
+                    const transfer = new DataTransfer();
+                    transfer.items.add(files[0]);
+                    firstUploadInput.files = transfer.files;
+                    firstUploadForm.submit();
+                } catch (error) {
+                    firstUploadInput.click();
+                    showStockWiseToast('Drag-and-drop is restricted in this browser. Please use Choose File.', 'warning');
                 }
             });
         }
@@ -3920,7 +3982,23 @@
         }
     }
 
+    function preventBrowserFileDropNavigation(root = document) {
+        if (document.body.dataset.fileDropNavigationGuard === 'true') return;
+        document.body.dataset.fileDropNavigationGuard = 'true';
+        ['dragover', 'drop'].forEach((eventName) => {
+            document.addEventListener(eventName, (event) => {
+                const insideDropzone = event.target?.closest?.('#dropzone, [data-onboarding-upload-form]');
+                const types = event.dataTransfer?.types;
+                const hasFiles = types ? (Array.from(types).includes('Files') || types.contains?.('Files')) : false;
+                if (!insideDropzone && hasFiles) {
+                    event.preventDefault();
+                }
+            });
+        });
+    }
+
     function initializePage(root = document) {
+        preventBrowserFileDropNavigation(root);
         clearStaleInteractionBlockers(root);
         const pageRoot = root.id === "page-content" ? root : (root.querySelector?.("#page-content") || root);
 
