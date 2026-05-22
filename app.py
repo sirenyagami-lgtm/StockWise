@@ -205,15 +205,6 @@ def demo_seed_enabled() -> bool:
     return os.environ.get("STOCKWISE_DISABLE_DEMO_SEED", "0").strip().lower() not in {"1", "true", "yes"}
 
 
-def demo_data_for_all_users_enabled() -> bool:
-    """Use the bundled demo CSV for any account that has no uploaded data.
-
-    This keeps the online demo useful even when people create their own accounts.
-    Set STOCKWISE_DEMO_DATA_FOR_ALL=0 to limit bundled data to the seeded demo users only.
-    """
-    return os.environ.get("STOCKWISE_DEMO_DATA_FOR_ALL", "1").strip().lower() not in {"0", "false", "no"}
-
-
 def hosted_memory_upload_mode_enabled() -> bool:
     """Default to safer in-memory uploads on Render unless explicitly disabled.
 
@@ -2656,12 +2647,6 @@ def get_user_by_username(username: str) -> dict[str, Any] | None:
 
 
 def create_user(full_name: str, email: str, password: str, position: str = "Owner") -> int:
-    """Create a user and reliably return the database user_id.
-
-    Render/Aiven can occasionally return an empty lastrowid after a successful
-    insert on pooled connections. The signup flow depends on this id, so we
-    verify by selecting the row back by normalized email before returning.
-    """
     ensure_multi_user_schema()
     normalized_email = normalize_email(email)
     base_username = normalized_email.split("@")[0]
@@ -2673,77 +2658,22 @@ def create_user(full_name: str, email: str, password: str, position: str = "Owne
         counter += 1
 
     password_hash = generate_password_hash(password)
-    cleaned_role = normalize_role(position)
 
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute(
             """
-            INSERT INTO users (full_name, email, position, role, username, password_hash, is_active, account_status)
-            VALUES (%s, %s, %s, %s, %s, %s, 1, 'active')
+            INSERT INTO users (full_name, email, position, role, username, password_hash, account_status)
+            VALUES (%s, %s, %s, %s, %s, %s, 'active')
             """,
-            (full_name.strip(), normalized_email, cleaned_role, cleaned_role, username, password_hash)
+            (full_name.strip(), normalized_email, normalize_role(position), normalize_role(position), username, password_hash)
         )
         conn.commit()
-
-        created_id = cursor.lastrowid
-        if created_id:
-            return int(created_id)
-
-        cursor.execute(
-            "SELECT user_id FROM users WHERE LOWER(email) = %s LIMIT 1",
-            (normalized_email,),
-        )
-        row = cursor.fetchone()
-        if row:
-            return int(row[0])
-        raise RuntimeError("Account was inserted but could not be read back from the database.")
+        return cursor.lastrowid
     finally:
         cursor.close()
         conn.close()
-
-
-def recover_signup_user(full_name: str, email: str, password: str, position: str = "Owner") -> dict[str, Any] | None:
-    """Recover a just-created signup account if the first read by id failed.
-
-    This is intentionally narrow: it only runs during signup after validation has
-    already confirmed the email was not registered. It prevents the user-facing
-    state where the row exists but the session cannot be initialized.
-    """
-    normalized_email = normalize_email(email)
-    user = get_user_by_email(normalized_email)
-    if user:
-        return user
-
-    try:
-        user_id = create_user(full_name=full_name, email=normalized_email, password=password, position=position)
-        return get_user_by_id(user_id) or get_user_by_email(normalized_email)
-    except Exception as exc:
-        print(f"[StockWise signup recovery failed] {type(exc).__name__}: {exc}", flush=True)
-        return None
-
-
-def initialize_signup_session(user: dict[str, Any], password: str | None = None) -> None:
-    """Set up session, workspace, settings, and onboarding for a new signup."""
-    user_id = int(user["user_id"])
-    session.clear()
-    session["user_logged_in"] = True
-    session["user_id"] = user_id
-    session["user_name"] = user.get("full_name") or "User"
-    session["user_email"] = user.get("email") or ""
-    session["force_onboarding"] = True
-
-    create_initial_user_settings(user_id)
-    ensure_user_workspace(user_id)
-    refresh_session_user(user_id)
-
-    # Keep newly created demo accounts useful even before any manual upload.
-    # This does not block onboarding; it only prepares data for the first dashboard.
-    try:
-        load_demo_dataset_for_current_session(force=True)
-    except Exception as exc:
-        print(f"[StockWise signup demo data preload skipped] {type(exc).__name__}: {exc}", flush=True)
 
 
 def get_user_by_id(user_id: int) -> dict[str, Any] | None:
@@ -6006,7 +5936,7 @@ def load_bundled_demo_dataset() -> pd.DataFrame | None:
 def load_demo_dataset_for_current_session(force: bool = False) -> pd.DataFrame | None:
     """Attach the bundled demo data to the current process/session for demo accounts."""
     user_email = session.get("user_email")
-    if not (is_demo_account_email(user_email) or demo_data_for_all_users_enabled()):
+    if not is_demo_account_email(user_email):
         return None
 
     state = get_app_state()
@@ -9157,15 +9087,19 @@ def auth():
                         position="Owner",
                     )
 
-                    user = get_user_by_id(user_id) or get_user_by_email(signup_email)
+                    user = get_user_by_id(user_id)
                     if user is None:
-                        user = recover_signup_user(signup_name, signup_email, password, position="Owner")
-
-                    if user is None:
-                        auth_message = "The account was saved, but StockWise could not open it yet. Please try logging in again."
+                        auth_message = "The account was created, but login could not continue."
                         auth_message_type = "error"
                     else:
-                        initialize_signup_session(user, password=password)
+                        session["user_logged_in"] = True
+                        session["user_id"] = user["user_id"]
+                        session["user_name"] = user["full_name"]
+                        session["user_email"] = user["email"]
+                        ensure_user_workspace(user["user_id"])
+                        refresh_session_user(user["user_id"])
+                        session["force_onboarding"] = True
+                        create_initial_user_settings(user["user_id"])
                         add_activity_log("Account created", "Authentication", "Success", user_id=user["user_id"], store_id=session.get("user_store_id"))
 
                         return redirect(url_for("first_time_setup"))
