@@ -292,6 +292,46 @@ def save_uploaded_image(file_storage, subfolder: str, prefix: str) -> str | None
     return f"uploads/{subfolder}/{filename}"
 
 
+def _quote_mysql_identifier(identifier: str) -> str:
+    """Safely quote internal table/column names for MySQL ALTER statements."""
+    cleaned = str(identifier or "")
+    if not re.fullmatch(r"[A-Za-z0-9_]+", cleaned):
+        raise ValueError(f"Unsafe MySQL identifier: {identifier!r}")
+    return f"`{cleaned}`"
+
+
+def _column_exists(cursor, table_name: str, column_name: str) -> bool:
+    """Return True when the current database already has the given column."""
+    cursor.execute(
+        """
+        SELECT COUNT(*) AS column_count
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = %s
+          AND COLUMN_NAME = %s
+        """,
+        (table_name, column_name),
+    )
+    row = cursor.fetchone()
+    if isinstance(row, dict):
+        return int(row.get("column_count", 0) or 0) > 0
+    return bool(row and int(row[0] or 0) > 0)
+
+
+def add_column_if_missing(cursor, table_name: str, column_name: str, column_definition: str, after_column: str | None = None) -> None:
+    """MySQL-compatible replacement for MariaDB's ADD COLUMN IF NOT EXISTS."""
+    if _column_exists(cursor, table_name, column_name):
+        return
+
+    statement = (
+        f"ALTER TABLE {_quote_mysql_identifier(table_name)} "
+        f"ADD COLUMN {_quote_mysql_identifier(column_name)} {column_definition}"
+    )
+    if after_column:
+        statement += f" AFTER {_quote_mysql_identifier(after_column)}"
+    cursor.execute(statement)
+
+
 def ensure_user_account_media_columns() -> None:
     """Add lightweight account media fields safely for existing MariaDB/XAMPP installs."""
     global USER_ACCOUNT_MEDIA_SCHEMA_READY
@@ -301,12 +341,7 @@ def ensure_user_account_media_columns() -> None:
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute(
-            """
-            ALTER TABLE users
-                ADD COLUMN IF NOT EXISTS profile_image VARCHAR(255) NULL AFTER position
-            """
-        )
+        add_column_if_missing(cursor, "users", "profile_image", "VARCHAR(255) NULL", after_column="position")
         conn.commit()
         USER_ACCOUNT_MEDIA_SCHEMA_READY = True
     finally:
@@ -342,8 +377,8 @@ def ensure_notifications_table() -> None:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
-        cursor.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS store_id INT(11) NULL AFTER user_id")
-        cursor.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS target_role VARCHAR(40) NULL AFTER event_type")
+        add_column_if_missing(cursor, "notifications", "store_id", "INT(11) NULL", after_column="user_id")
+        add_column_if_missing(cursor, "notifications", "target_role", "VARCHAR(40) NULL", after_column="event_type")
         conn.commit()
         NOTIFICATION_SCHEMA_READY = True
     finally:
@@ -461,11 +496,11 @@ def ensure_multi_user_schema() -> None:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
-        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(50) NULL AFTER position")
-        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS store_id INT(11) NULL AFTER role")
-        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by INT(11) NULL AFTER store_id")
-        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status VARCHAR(30) NULL AFTER created_by")
-        cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at DATETIME NULL AFTER is_active")
+        add_column_if_missing(cursor, "users", "role", "VARCHAR(50) NULL", after_column="position")
+        add_column_if_missing(cursor, "users", "store_id", "INT(11) NULL", after_column="role")
+        add_column_if_missing(cursor, "users", "created_by", "INT(11) NULL", after_column="store_id")
+        add_column_if_missing(cursor, "users", "account_status", "VARCHAR(30) NULL", after_column="created_by")
+        add_column_if_missing(cursor, "users", "last_login_at", "DATETIME NULL", after_column="is_active")
         cursor.execute(
             """
             CREATE TABLE IF NOT EXISTS activity_logs (
@@ -504,8 +539,8 @@ def ensure_multi_user_schema() -> None:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
-        cursor.execute("ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS membership_id INT(11) NULL AFTER user_id")
-        cursor.execute("ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS actor_role VARCHAR(50) NULL AFTER user_name")
+        add_column_if_missing(cursor, "activity_logs", "membership_id", "INT(11) NULL", after_column="user_id")
+        add_column_if_missing(cursor, "activity_logs", "actor_role", "VARCHAR(50) NULL", after_column="user_name")
         cursor.execute(
             """
             UPDATE users
@@ -3546,26 +3581,16 @@ def ensure_user_settings_table() -> None:
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
             """
         )
-        cursor.execute(
-            """
-            ALTER TABLE user_settings
-                ADD COLUMN IF NOT EXISTS onboarding_completed TINYINT(1) NOT NULL DEFAULT 1 AFTER include_filtered_rows_only
-            """
-        )
-        cursor.execute(
-            """
-            ALTER TABLE user_settings
-                ADD COLUMN IF NOT EXISTS store_logo VARCHAR(255) NULL AFTER location_area
-            """
-        )
-        for statement in [
-            "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS data_date_format VARCHAR(32) NULL DEFAULT 'auto' AFTER include_filtered_rows_only",
-            "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS data_time_format VARCHAR(32) NULL DEFAULT 'auto' AFTER data_date_format",
-            "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS payday_indicator_handling VARCHAR(32) NULL DEFAULT 'auto' AFTER data_time_format",
-            "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS duplicate_handling VARCHAR(32) NULL DEFAULT 'remove_exact' AFTER payday_indicator_handling",
-            "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS column_mapping_json TEXT NULL AFTER duplicate_handling",
+        add_column_if_missing(cursor, "user_settings", "onboarding_completed", "TINYINT(1) NOT NULL DEFAULT 1", after_column="include_filtered_rows_only")
+        add_column_if_missing(cursor, "user_settings", "store_logo", "VARCHAR(255) NULL", after_column="location_area")
+        for column_name, column_definition, after_column in [
+            ("data_date_format", "VARCHAR(32) NULL DEFAULT 'auto'", "include_filtered_rows_only"),
+            ("data_time_format", "VARCHAR(32) NULL DEFAULT 'auto'", "data_date_format"),
+            ("payday_indicator_handling", "VARCHAR(32) NULL DEFAULT 'auto'", "data_time_format"),
+            ("duplicate_handling", "VARCHAR(32) NULL DEFAULT 'remove_exact'", "payday_indicator_handling"),
+            ("column_mapping_json", "TEXT NULL", "duplicate_handling"),
         ]:
-            cursor.execute(statement)
+            add_column_if_missing(cursor, "user_settings", column_name, column_definition, after_column=after_column)
         conn.commit()
         USER_SETTINGS_SCHEMA_READY = True
     finally:
@@ -5139,8 +5164,8 @@ def ensure_model_tables() -> None:
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     try:
-        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS unit_type VARCHAR(100) NULL")
-        cursor.execute("ALTER TABLE products ADD COLUMN IF NOT EXISTS user_id INT(11) NULL AFTER product_id")
+        add_column_if_missing(cursor, "products", "unit_type", "VARCHAR(100) NULL")
+        add_column_if_missing(cursor, "products", "user_id", "INT(11) NULL", after_column="product_id")
         _drop_single_column_unique_index(cursor, 'products', 'product_name')
         _ensure_index(cursor, 'products', 'idx_products_user_name', '(user_id, product_name)')
 
@@ -5219,18 +5244,18 @@ def ensure_model_tables() -> None:
         if 'created_at' in model_run_cols and 'started_at' not in model_run_cols:
             cursor.execute("ALTER TABLE model_runs CHANGE COLUMN created_at started_at DATETIME DEFAULT CURRENT_TIMESTAMP")
             model_run_cols = _fetch_table_columns(cursor, 'model_runs')
-        for stmt in [
-            "ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS user_id INT(11) NOT NULL AFTER upload_id",
-            "ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS run_status VARCHAR(32) DEFAULT 'started' AFTER user_id",
-            "ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS sarima_status VARCHAR(32) DEFAULT 'pending' AFTER run_status",
-            "ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS xgboost_status VARCHAR(32) DEFAULT 'pending' AFTER sarima_status",
-            "ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS sarima_version VARCHAR(100) NULL AFTER xgboost_status",
-            "ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS xgboost_version VARCHAR(100) NULL AFTER sarima_version",
-            "ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS notes TEXT NULL AFTER xgboost_version",
-            "ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS started_at DATETIME DEFAULT CURRENT_TIMESTAMP AFTER notes",
-            "ALTER TABLE model_runs ADD COLUMN IF NOT EXISTS completed_at DATETIME NULL AFTER started_at",
+        for column_name, column_definition, after_column in [
+            ("user_id", "INT(11) NOT NULL", "upload_id"),
+            ("run_status", "VARCHAR(32) DEFAULT 'started'", "user_id"),
+            ("sarima_status", "VARCHAR(32) DEFAULT 'pending'", "run_status"),
+            ("xgboost_status", "VARCHAR(32) DEFAULT 'pending'", "sarima_status"),
+            ("sarima_version", "VARCHAR(100) NULL", "xgboost_status"),
+            ("xgboost_version", "VARCHAR(100) NULL", "sarima_version"),
+            ("notes", "TEXT NULL", "xgboost_version"),
+            ("started_at", "DATETIME DEFAULT CURRENT_TIMESTAMP", "notes"),
+            ("completed_at", "DATETIME NULL", "started_at"),
         ]:
-            cursor.execute(stmt)
+            add_column_if_missing(cursor, "model_runs", column_name, column_definition, after_column=after_column)
         _ensure_index(cursor, 'model_runs', 'idx_model_runs_user_upload', '(user_id, upload_id)')
 
         # forecasts schema harmonization
@@ -5247,17 +5272,17 @@ def ensure_model_tables() -> None:
         if 'created_at' in forecast_cols and 'generated_at' not in forecast_cols:
             cursor.execute("ALTER TABLE forecasts CHANGE COLUMN created_at generated_at DATETIME DEFAULT CURRENT_TIMESTAMP")
             forecast_cols = _fetch_table_columns(cursor, 'forecasts')
-        for stmt in [
-            "ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS upload_id INT(11) NULL AFTER model_run_id",
-            "ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS user_id INT(11) NULL AFTER upload_id",
-            "ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS product_name VARCHAR(255) NULL AFTER product_id",
-            "ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS horizon_days INT(11) NULL AFTER forecast_date",
-            "ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS model_source VARCHAR(32) DEFAULT 'SARIMA' AFTER forecast_quantity",
-            "ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS status_label VARCHAR(32) DEFAULT 'completed' AFTER model_source",
-            "ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS note TEXT NULL AFTER status_label",
-            "ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS generated_at DATETIME DEFAULT CURRENT_TIMESTAMP AFTER note",
+        for column_name, column_definition, after_column in [
+            ("upload_id", "INT(11) NULL", "model_run_id"),
+            ("user_id", "INT(11) NULL", "upload_id"),
+            ("product_name", "VARCHAR(255) NULL", "product_id"),
+            ("horizon_days", "INT(11) NULL", "forecast_date"),
+            ("model_source", "VARCHAR(32) DEFAULT 'SARIMA'", "forecast_quantity"),
+            ("status_label", "VARCHAR(32) DEFAULT 'completed'", "model_source"),
+            ("note", "TEXT NULL", "status_label"),
+            ("generated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP", "note"),
         ]:
-            cursor.execute(stmt)
+            add_column_if_missing(cursor, "forecasts", column_name, column_definition, after_column=after_column)
         cursor.execute(
             """
             ALTER TABLE forecasts
@@ -5285,18 +5310,18 @@ def ensure_model_tables() -> None:
         if 'created_at' in prediction_cols and 'generated_at' not in prediction_cols:
             cursor.execute("ALTER TABLE stockout_predictions CHANGE COLUMN created_at generated_at DATETIME DEFAULT CURRENT_TIMESTAMP")
             prediction_cols = _fetch_table_columns(cursor, 'stockout_predictions')
-        for stmt in [
-            "ALTER TABLE stockout_predictions ADD COLUMN IF NOT EXISTS upload_id INT(11) NULL AFTER model_run_id",
-            "ALTER TABLE stockout_predictions ADD COLUMN IF NOT EXISTS user_id INT(11) NULL AFTER upload_id",
-            "ALTER TABLE stockout_predictions ADD COLUMN IF NOT EXISTS product_name VARCHAR(255) NULL AFTER product_id",
-            "ALTER TABLE stockout_predictions ADD COLUMN IF NOT EXISTS forecast_horizon_days INT(11) NULL AFTER prediction_date",
-            "ALTER TABLE stockout_predictions ADD COLUMN IF NOT EXISTS model_source VARCHAR(32) DEFAULT 'XGBoost' AFTER risk_level",
-            "ALTER TABLE stockout_predictions ADD COLUMN IF NOT EXISTS top_factors TEXT NULL AFTER model_source",
-            "ALTER TABLE stockout_predictions ADD COLUMN IF NOT EXISTS note TEXT NULL AFTER top_factors",
-            "ALTER TABLE stockout_predictions ADD COLUMN IF NOT EXISTS recommendation VARCHAR(255) NULL AFTER note",
-            "ALTER TABLE stockout_predictions ADD COLUMN IF NOT EXISTS generated_at DATETIME DEFAULT CURRENT_TIMESTAMP AFTER recommendation",
+        for column_name, column_definition, after_column in [
+            ("upload_id", "INT(11) NULL", "model_run_id"),
+            ("user_id", "INT(11) NULL", "upload_id"),
+            ("product_name", "VARCHAR(255) NULL", "product_id"),
+            ("forecast_horizon_days", "INT(11) NULL", "prediction_date"),
+            ("model_source", "VARCHAR(32) DEFAULT 'XGBoost'", "risk_level"),
+            ("top_factors", "TEXT NULL", "model_source"),
+            ("note", "TEXT NULL", "top_factors"),
+            ("recommendation", "VARCHAR(255) NULL", "note"),
+            ("generated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP", "recommendation"),
         ]:
-            cursor.execute(stmt)
+            add_column_if_missing(cursor, "stockout_predictions", column_name, column_definition, after_column=after_column)
         cursor.execute(
             """
             ALTER TABLE stockout_predictions
