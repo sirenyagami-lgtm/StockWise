@@ -6318,9 +6318,8 @@ def get_model_artifacts() -> dict[str, Any]:
     return artifacts
 
 
-def get_model_ui_summary() -> dict[str, Any]:
-    artifacts = get_model_artifacts()
-    return artifacts.get('model_ui_summary') or {
+def _empty_model_ui_summary() -> dict[str, Any]:
+    return {
         'available': False,
         'model_run_label': 'No generated results yet',
         'model_run_timestamp': 'No uploaded sales data yet',
@@ -6337,6 +6336,11 @@ def get_model_ui_summary() -> dict[str, Any]:
             'Latest generated results: not available yet',
         ],
     }
+
+
+def get_model_ui_summary() -> dict[str, Any]:
+    artifacts = get_model_artifacts()
+    return artifacts.get('model_ui_summary') or _empty_model_ui_summary()
 
 
 def clear_insights_cache() -> None:
@@ -8434,28 +8438,68 @@ def get_report_summary(df: pd.DataFrame | None) -> dict[str, Any]:
     }
 
 def render_page(template_name: str, **context):
-    """Render pages without loading heavy generated data for pages that do not need it."""
+    """Render pages without forcing a database reload when a route already handled a fallback.
+
+    Render deployments can return a plain 500 if a page tries to reload the latest
+    processed dataset while a previous upload is only partially available or a
+    dashboard query fails. Routes can pass _skip_dataset_reload=True to render an
+    empty-safe page instead of repeating the failing database load.
+    """
     heavy_templates = {"dashboard.html", "insights.html", "product_list.html", "reports.html"}
     needs_dataset = template_name in heavy_templates or template_name == "upload_data.html"
+    skip_dataset_reload = bool(context.pop("_skip_dataset_reload", False))
+
     dataset = context.get("data")
     if dataset is None and needs_dataset:
         dataset = context.get("processed_data")
-        if dataset is None and template_name in heavy_templates:
-            dataset = get_processed_dataset()
+        if dataset is None and template_name in heavy_templates and not skip_dataset_reload:
+            try:
+                dataset = get_processed_dataset()
+            except Exception as exc:
+                print(f"[StockWise render_page dataset fallback] {type(exc).__name__}: {exc}", flush=True)
+                dataset = None
+
     context.setdefault("data", dataset if needs_dataset else None)
-    context.setdefault("processed_filename", get_processed_filename() if needs_dataset else None)
-    context.setdefault(
-        "page_state",
-        {
+
+    if "processed_filename" not in context:
+        processed_filename = None
+        if needs_dataset and not skip_dataset_reload:
+            try:
+                processed_filename = get_processed_filename()
+            except Exception as exc:
+                print(f"[StockWise render_page filename fallback] {type(exc).__name__}: {exc}", flush=True)
+        context["processed_filename"] = processed_filename
+
+    try:
+        processed_at = get_app_state().processed_at
+    except Exception:
+        processed_at = None
+
+    if "page_state" not in context:
+        try:
+            last_processed_label = format_datetime(processed_at) if skip_dataset_reload else get_last_processed_label()
+        except Exception as exc:
+            print(f"[StockWise render_page page-state fallback] {type(exc).__name__}: {exc}", flush=True)
+            last_processed_label = "No data yet"
+        context["page_state"] = {
             "coverage_period": infer_coverage_period(dataset) if dataset is not None else "No processed sales data yet",
-            "last_processed_label": get_last_processed_label(),
-            "upload_freshness": infer_upload_freshness(get_app_state().processed_at),
-        },
-    )
+            "last_processed_label": last_processed_label,
+            "upload_freshness": infer_upload_freshness(processed_at),
+        }
+
     if template_name in {"dashboard.html", "insights.html"}:
-        context.setdefault("model_ui_summary", get_model_ui_summary())
+        if "model_ui_summary" not in context:
+            if skip_dataset_reload:
+                context["model_ui_summary"] = _empty_model_ui_summary()
+            else:
+                try:
+                    context["model_ui_summary"] = get_model_ui_summary()
+                except Exception as exc:
+                    print(f"[StockWise render_page model summary fallback] {type(exc).__name__}: {exc}", flush=True)
+                    context["model_ui_summary"] = _empty_model_ui_summary()
     else:
         context.setdefault("model_ui_summary", {})
+
     return render_template(template_name, **context)
 
 
@@ -8851,34 +8895,149 @@ def download_standard_template():
     return download_sample_template()
 
 
+def _empty_upload_status() -> dict[str, Any]:
+    """Fallback upload status used when the database-backed status cannot be loaded."""
+    return {
+        "selected_filename": None,
+        "processed_filename": None,
+        "selected_at": None,
+        "processed_at": None,
+        "selected_coverage_period": "No selected file yet",
+        "processed_coverage_period": "No processed sales data yet",
+        "coverage_period": "No processed sales data yet",
+        "freshness_label": "No uploaded sales data yet",
+        "last_processed_label": "No data yet",
+        "last_upload_mode": "new",
+        "active_filename": None,
+        "missing_date_gaps": [],
+        "coverage_overlap": None,
+        "recommended_upload_frequency": "Daily uploads are recommended for more reliable forecast and stockout insights.",
+    }
+
+
+def _state_only_upload_status() -> dict[str, Any]:
+    """Return upload status without touching MySQL.
+
+    The Render logs showed /dashboard timing out while mysql-connector was
+    resetting a pooled connection during conn.close(). Dashboard should not
+    perform a database hydration just to show the page, so this helper reads only
+    the in-memory state for a safe fallback view.
+    """
+    status = _empty_upload_status()
+    try:
+        state = get_app_state()
+        selected_df = state.selected_data
+        processed_df = state.processed_data
+        active_df = processed_df if processed_df is not None else selected_df
+        active_name = state.processed_filename if processed_df is not None else state.selected_filename
+        processed_at = state.processed_at
+        status.update({
+            "selected_filename": state.selected_filename,
+            "processed_filename": state.processed_filename,
+            "selected_at": state.selected_at,
+            "processed_at": processed_at,
+            "selected_coverage_period": infer_coverage_period(selected_df),
+            "processed_coverage_period": infer_coverage_period(processed_df),
+            "coverage_period": infer_coverage_period(active_df),
+            "freshness_label": infer_upload_freshness(processed_at),
+            "last_processed_label": format_datetime(processed_at),
+            "last_upload_mode": state.last_upload_mode,
+            "active_filename": active_name,
+            "missing_date_gaps": find_missing_date_gaps(active_df),
+            "coverage_overlap": coverage_overlap(selected_df, processed_df),
+        })
+    except Exception as exc:
+        print(f"[StockWise state-only upload status fallback] {type(exc).__name__}: {exc}", flush=True)
+    return status
+
+
+def _dashboard_recovery_summary() -> dict[str, Any]:
+    """Empty dashboard summary that does not query MySQL or model artifacts."""
+    chart_data = get_dashboard_chart_data(None)
+    return {
+        "metrics": None,
+        "priority_rows": [],
+        "dashboard_priority_rows": [],
+        "buyer_behavior_insights": [],
+        "chart_type": chart_data.get("chart_type", "line"),
+        "chart_labels": chart_data.get("chart_labels", []),
+        "chart_datasets": chart_data.get("chart_datasets", []),
+        "chart_message": chart_data.get("chart_message"),
+        "chart_options": chart_data.get("chart_options", {}),
+        "chart_explanation": chart_data.get("chart_explanation") or "No chart data available yet.",
+        "chart_focus_label": chart_data.get("chart_focus_label", "Overall Demand"),
+        "has_forecast": False,
+        "forecast_start_label": None,
+        "model_ui_summary": _empty_model_ui_summary(),
+    }
+
+
 @app.route("/dashboard")
 @login_required
 @role_required("dashboard")
 def dashboard():
+    # Keep /dashboard responsive on Render. Do not hydrate the latest upload from
+    # MySQL here; the log showed Gunicorn killing the worker while this page was
+    # closing/resetting a pooled MySQL connection. Other data pages can still load
+    # database-backed records, but the landing dashboard should fail open.
+    skip_dataset_reload = True
     try:
-        dataset = get_processed_dataset()
-        dashboard_summary = get_dashboard_summary(dataset)
-        upload_status = get_upload_status()
-        current_role = get_session_role()
-        role_dashboard = get_role_dashboard_context(current_role, dashboard_summary, upload_status)
-        is_owner_dashboard = normalize_role(current_role) == "Owner"
-        recent_activity = get_activity_logs_for_current_store(limit=5) if is_owner_dashboard else []
-    except Exception as exc:
-        # Dashboard rendering must never trap the user behind a 500 after upload.
-        print(f"[StockWise dashboard fallback] {type(exc).__name__}: {exc}", flush=True)
+        dataset = get_app_state().processed_data
+    except Exception:
         dataset = None
-        dashboard_summary = get_dashboard_summary(None)
-        upload_status = get_upload_status()
-        current_role = get_session_role()
+
+    dashboard_summary = _dashboard_recovery_summary()
+    upload_status = _state_only_upload_status()
+    current_role = get_session_role()
+    try:
         role_dashboard = get_role_dashboard_context(current_role, dashboard_summary, upload_status)
-        recent_activity = []
+    except Exception as role_exc:
+        print(f"[StockWise dashboard role fallback] {type(role_exc).__name__}: {role_exc}", flush=True)
+        role_dashboard = {
+            "role": normalize_role(current_role),
+            "title": "Dashboard",
+            "subtitle": "",
+            "has_data": False,
+            "empty_prompt": "Upload sales data to start generating store insights.",
+            "primary_action_label": "Upload New Data" if role_can_access("upload_data", current_role) else "",
+            "primary_action_url": url_for("upload_data") if role_can_access("upload_data", current_role) else "",
+            "secondary_actions": [],
+            "show_owner_dashboard": normalize_role(current_role) == "Owner",
+            "show_manager_dashboard": normalize_role(current_role) == "Store Manager",
+            "show_assistant_dashboard": normalize_role(current_role) == "Operational Assistant",
+            "show_full_owner_dashboard": normalize_role(current_role) == "Owner",
+            "show_operational_chart": False,
+            "show_buyer_behavior": False,
+            "show_priority_table": False,
+            "show_simple_tasks": normalize_role(current_role) == "Operational Assistant",
+            "review_rows": [],
+            "high_risk_rows": [],
+            "low_stock_rows": [],
+            "assistant_task_rows": [],
+            "manager_focus_items": [],
+            "assistant_reminders": [],
+            "stable_count": 0,
+            "monitored_count": 0,
+            "low_stock_count": 0,
+            "review_count": 0,
+            "high_risk_count": 0,
+            "last_processed_label": upload_status.get("last_processed_label", "No data yet"),
+            "latest_upload_status_label": upload_status.get("freshness_label", "No uploaded sales data yet"),
+            "latest_results_label": "No generated results yet",
+        }
+
     return render_page(
         "dashboard.html",
+        data=dataset,
+        processed_data=dataset,
+        _skip_dataset_reload=skip_dataset_reload,
         dashboard_summary=dashboard_summary,
         role_dashboard=role_dashboard,
         metrics=dashboard_summary["metrics"],
         upload_status=upload_status,
-        recent_activity=recent_activity,
+        recent_activity=[],
+        model_ui_summary=_empty_model_ui_summary(),
+        processed_filename=upload_status.get("processed_filename"),
     )
 
 
