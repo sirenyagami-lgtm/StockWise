@@ -194,9 +194,9 @@ DEMO_STORE_DEFAULTS = {
     "currency": "PHP",
 }
 DEMO_SEED_ACCOUNTS = [
-    {"full_name": "Zandra", "email": "zandra.com", "password": "Zandra", "role": "Owner"},
-    {"full_name": "Nicole", "email": "nicole.com", "password": "Nicole", "role": "Store Manager"},
-    {"full_name": "Alexzis", "email": "alexzis.com", "password": "Alexzis", "role": "Operational Assistant"},
+    {"full_name": "Zandra", "email": "zandra@email.com", "password": "Zandra@1234", "role": "Owner"},
+    {"full_name": "Nicole", "email": "nicole@email.com", "password": "Nicole@1234", "role": "Store Manager"},
+    {"full_name": "Alexzis", "email": "alexzis@email.com", "password": "Alexzis@1234", "role": "Operational Assistant"},
 ]
 DEMO_ACCOUNT_EMAILS = {account["email"].lower() for account in DEMO_SEED_ACCOUNTS}
 
@@ -924,6 +924,7 @@ def ensure_demo_accounts_seeded() -> None:
 
             conn.commit()
             STOCKWISE_DEMO_SEED_READY = True
+            print("[StockWise demo seed ready] Demo accounts seeded: zandra@email.com, nicole@email.com, alexzis@email.com", flush=True)
         except Exception:
             conn.rollback()
             raise
